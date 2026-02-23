@@ -17,9 +17,7 @@ class ConfigManager:
             "api_key": "clio-playground-web",
             "proxy": "",
             "use_proxy": False,
-            "generate_timeout": 300,
-            "impersonate": "chrome124",
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+            "generate_timeout": 300
         }
         self.load()
 
@@ -29,7 +27,9 @@ class ConfigManager:
             if source.exists():
                 try:
                     data = json.loads(source.read_text(encoding="utf-8"))
-                    self.config.update(data)
+                    for k, v in data.items():
+                        if k in self.config:
+                            self.config[k] = v
                     if source == LEGACY_CONFIG_FILE and not CONFIG_FILE.exists():
                         CONFIG_FILE.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
                 except Exception:

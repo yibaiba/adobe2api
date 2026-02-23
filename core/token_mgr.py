@@ -1,7 +1,9 @@
 import json
+import base64
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 
@@ -110,19 +112,51 @@ class TokenManager:
                         t["status"] = "active"
             self.save()
 
+    @staticmethod
+    def _decode_jwt_exp(value: str) -> Optional[int]:
+        token = str(value or "").strip()
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload = parts[1]
+        payload += "=" * ((4 - len(payload) % 4) % 4)
+        try:
+            raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
+            data = json.loads(raw.decode("utf-8", errors="ignore"))
+            exp = data.get("exp")
+            if isinstance(exp, (int, float)):
+                return int(exp)
+        except Exception:
+            return None
+        return None
+
     def list_all(self):
         with self._lock:
             res = []
+            now_ts = int(time.time())
             for t in self.tokens:
                 # mask value
                 val = t["value"]
                 masked = val[:15] + "..." + val[-10:] if len(val) > 30 else "***"
+                exp_ts = self._decode_jwt_exp(val)
+                remaining_seconds = None
+                exp_readable = None
+                if exp_ts is not None:
+                    remaining_seconds = exp_ts - now_ts
+                    try:
+                        exp_readable = datetime.fromtimestamp(exp_ts).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        exp_readable = str(exp_ts)
                 res.append({
                     "id": t["id"],
                     "value": masked,
                     "status": t["status"],
                     "fails": t["fails"],
-                    "added_at": t["added_at"]
+                    "added_at": t["added_at"],
+                    "expires_at": exp_ts,
+                    "expires_at_text": exp_readable,
+                    "remaining_seconds": remaining_seconds,
+                    "is_expired": bool(exp_ts is not None and remaining_seconds is not None and remaining_seconds <= 0),
                 })
             return res
 

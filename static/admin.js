@@ -36,13 +36,32 @@ document.addEventListener("DOMContentLoaded", () => {
       renderTable(data.tokens || []);
     } catch (err) {
       console.error(err);
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color: #ffb4bc;">加载失败</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color: #ffb4bc;">加载失败</td></tr>`;
     }
+  }
+
+  function formatExpiry(token) {
+    if (!token || token.expires_at == null) {
+      return '<span style="color:#7f96ad;">未知</span>';
+    }
+    const remain = Number(token.remaining_seconds || 0);
+    const abs = Math.abs(remain);
+    const days = Math.floor(abs / 86400);
+    const hours = Math.floor((abs % 86400) / 3600);
+    const mins = Math.floor((abs % 3600) / 60);
+    const rel = days > 0 ? `${days}天${hours}小时` : `${hours}小时${mins}分`;
+    if (remain <= 0 || token.is_expired) {
+      return `<span style="color:#ffb4bc;">已过期 (${token.expires_at_text || '-'})</span>`;
+    }
+    if (remain < 3600 * 6) {
+      return `<span style="color:#ffca58;">剩余 ${rel}<br><span style="color:#7f96ad;">${token.expires_at_text || '-'}</span></span>`;
+    }
+    return `<span style="color:#a8bfd8;">剩余 ${rel}<br><span style="color:#7f96ad;">${token.expires_at_text || '-'}</span></span>`;
   }
 
   function renderTable(tokens) {
     if (!tokens.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">当前没有可用的 Token，请在上方添加。</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">当前没有可用的 Token，请在上方添加。</td></tr>`;
       return;
     }
 
@@ -62,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <td class="token-val">${t.value}</td>
         <td><span class="status-badge ${statusClass}">${displayStatus}</span></td>
         <td style="color: ${t.fails > 0 ? '#ffb4bc' : '#a8bfd8'};">${t.fails}</td>
+        <td style="font-size:12px; line-height:1.35;">${formatExpiry(t)}</td>
         <td class="action-btns">
           <button class="small" onclick="toggleToken('${t.id}', '${isStatusActive ? 'disabled' : 'active'}')">
             ${isStatusActive ? '禁用' : '启用'}

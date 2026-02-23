@@ -1,4 +1,5 @@
 data
 __pycache__
+config/config.json
 config/tokens.json
 tokens.json
