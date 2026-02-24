@@ -1156,6 +1156,7 @@ class ConfigUpdateRequest(BaseModel):
     proxy: Optional[str] = None
     use_proxy: Optional[bool] = None
     generate_timeout: Optional[int] = None
+    refresh_interval_hours: Optional[int] = None
 
 
 class RefreshBundleImportRequest(BaseModel):
@@ -1549,6 +1550,14 @@ def update_config(req: ConfigUpdateRequest):
         except Exception:
             timeout_val = 300
         update_data["generate_timeout"] = timeout_val if timeout_val > 0 else 300
+    if "refresh_interval_hours" in incoming:
+        try:
+            interval_hours = int(incoming["refresh_interval_hours"])
+        except Exception:
+            raise HTTPException(status_code=400, detail="refresh_interval_hours must be an integer between 1 and 24")
+        if interval_hours < 1 or interval_hours > 24:
+            raise HTTPException(status_code=400, detail="refresh_interval_hours must be between 1 and 24")
+        update_data["refresh_interval_hours"] = interval_hours
     config_manager.update_all(update_data)
     client.apply_config(config_manager.get_all())
     return config_manager.get_all()

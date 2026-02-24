@@ -17,7 +17,8 @@ class ConfigManager:
             "api_key": "clio-playground-web",
             "proxy": "",
             "use_proxy": False,
-            "generate_timeout": 300
+            "generate_timeout": 300,
+            "refresh_interval_hours": 15
         }
         self.load()
 

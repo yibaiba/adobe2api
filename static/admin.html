@@ -93,6 +93,12 @@
             <p class="help">默认 300 秒。支持任意正整数，按你的业务场景设置。</p>
           </div>
 
+          <div class="form-group">
+            <label for="confRefreshIntervalHours">自动刷新间隔 (小时)</label>
+            <input type="number" id="confRefreshIntervalHours" class="input-text" min="1" max="24" step="1" placeholder="默认 15" />
+            <p class="help">范围 1-24 小时。后台将严格按该间隔刷新。</p>
+          </div>
+
           <div class="actions" style="margin-top: 24px;">
             <button id="saveConfigBtn">保存配置</button>
             <span id="configMsg" class="msg"></span>

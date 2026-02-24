@@ -1,8 +1,9 @@
 import json
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import requests
 
@@ -41,7 +42,7 @@ class RefreshManager:
                     self._profile = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
                     self._state["has_profile"] = bool(self._profile)
                     self._state["enabled"] = bool(self._profile)
-                    self._state["next_retry_at"] = time.time() if self._profile else None
+                    self._state["next_retry_at"] = time.time() + self._refresh_interval_seconds() if self._profile else None
                 except Exception:
                     self._profile = {}
 
@@ -110,7 +111,7 @@ class RefreshManager:
             self._state["has_profile"] = True
             self._state["last_error"] = ""
             self._state["consecutive_failures"] = 0
-            self._state["next_retry_at"] = time.time()
+            self._state["next_retry_at"] = time.time() + self._refresh_interval_seconds()
             self._save_profile()
 
     def clear_bundle(self):
@@ -140,20 +141,34 @@ class RefreshManager:
             return {
                 **self._state,
                 "endpoint": endpoint,
+                "refresh_interval_hours": self._refresh_interval_hours(),
+                "next_refresh_at_text": self._format_ts(self._state.get("next_retry_at")),
             }
 
     @staticmethod
-    def _parse_expires_seconds(raw_value) -> Optional[int]:
+    def _format_ts(ts_value) -> str:
+        if ts_value is None:
+            return "-"
         try:
-            val = int(str(raw_value or "0").strip())
+            dt = datetime.fromtimestamp(float(ts_value))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
-            return None
-        if val <= 0:
-            return None
-        # Adobe often returns milliseconds-like value (~86400000).
-        if val > 86400 * 2:
-            val = int(val / 1000)
-        return val if val > 0 else None
+            return "-"
+
+    @staticmethod
+    def _refresh_interval_hours() -> int:
+        raw = config_manager.get("refresh_interval_hours", 15)
+        try:
+            hours = int(str(raw or "").strip())
+        except Exception:
+            return 15
+        if hours < 1 or hours > 24:
+            return 15
+        return hours
+
+    @classmethod
+    def _refresh_interval_seconds(cls) -> int:
+        return cls._refresh_interval_hours() * 3600
 
     def _requests_proxies(self):
         proxy = str(config_manager.get("proxy", "") or "").strip()
@@ -196,11 +211,7 @@ class RefreshManager:
             self._state["last_success_at"] = now_ts
             self._state["last_error"] = ""
             self._state["consecutive_failures"] = 0
-            seconds = self._parse_expires_seconds(data.get("expires_in"))
-            wait_seconds = 1800
-            if seconds:
-                wait_seconds = max(300, min(seconds - 600, 3600))
-            self._state["next_retry_at"] = time.time() + wait_seconds
+            self._state["next_retry_at"] = time.time() + self._refresh_interval_seconds()
 
         return {
             "status": "ok",

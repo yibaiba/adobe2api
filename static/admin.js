@@ -202,6 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const confUseProxy = document.getElementById("confUseProxy");
   const confProxy = document.getElementById("confProxy");
   const confGenerateTimeout = document.getElementById("confGenerateTimeout");
+  const confRefreshIntervalHours = document.getElementById("confRefreshIntervalHours");
   const saveConfigBtn = document.getElementById("saveConfigBtn");
   const configMsg = document.getElementById("configMsg");
   const refreshBundleInput = document.getElementById("refreshBundleInput");
@@ -232,6 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
         confUseProxy.checked = data.use_proxy || false;
         confProxy.value = data.proxy || "";
         confGenerateTimeout.value = Number(data.generate_timeout || 300);
+        confRefreshIntervalHours.value = Number(data.refresh_interval_hours || 15);
       }
     } catch (err) {
       console.error("加载配置失败", err);
@@ -251,7 +253,12 @@ document.addEventListener("DOMContentLoaded", () => {
         use_proxy: confUseProxy.checked,
         proxy: confProxy.value.trim(),
         generate_timeout: Math.max(1, Number(confGenerateTimeout.value || 300)),
+        refresh_interval_hours: Number(confRefreshIntervalHours.value || 15),
       };
+
+      if (!Number.isInteger(payload.refresh_interval_hours) || payload.refresh_interval_hours < 1 || payload.refresh_interval_hours > 24) {
+        throw new Error("自动刷新间隔必须是 1-24 的整数小时");
+      }
 
       const res = await fetch("/api/v1/config", {
         method: "PUT",
@@ -284,6 +291,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const lines = [
       `状态: ${st.enabled ? "已启用" : "已禁用"}`,
+      `刷新间隔: ${st.refresh_interval_hours || 15} 小时`,
+      `下次刷新: ${st.next_refresh_at_text || formatTs(st.next_retry_at)}`,
       `目标: ${st.endpoint?.url || "-"}`,
       `Client ID: ${st.endpoint?.client_id || "-"}`,
       `最近成功: ${formatTs(st.last_success_at)}`,
