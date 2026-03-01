@@ -71,9 +71,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   const refreshCreditsBatchBtn = document.getElementById("refreshCreditsBatchBtn");
   const tokenSelectAll = document.getElementById("tokenSelectAll");
   const tbody = document.querySelector("#tokenTable tbody");
+  const tokenTotalCount = document.getElementById("tokenTotalCount");
+  const tokenActiveCount = document.getElementById("tokenActiveCount");
+  const tokenPagination = document.getElementById("tokenPagination");
+  const tokenPrevBtn = document.getElementById("tokenPrevBtn");
+  const tokenNextBtn = document.getElementById("tokenNextBtn");
+  const tokenPageInfo = document.getElementById("tokenPageInfo");
   const tokenSelectedIds = new Set();
   let logsAutoTimer = null;
   let latestTokens = [];
+  const TOKENS_PAGE_SIZE = 20;
+  let tokenCurrentPage = 1;
+  let tokenTotalPages = 1;
 
   const STATUS_MAP = {
     "active": "生效中",
@@ -87,18 +96,59 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       const res = await fetch("/api/v1/tokens");
       const data = await res.json();
-      renderTable(data.tokens || []);
+      const tokens = Array.isArray(data?.tokens)
+        ? data.tokens
+        : Array.isArray(data?.items)
+          ? data.items
+          : [];
+      renderTable(tokens, data?.summary || null);
     } catch (err) {
       console.error(err);
+      renderTokenSummary([]);
+      renderTokenPagination(0);
       tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color: #ffb4bc;">加载失败</td></tr>`;
     }
   }
 
+  function getCurrentPageTokens(tokens = latestTokens) {
+    const list = Array.isArray(tokens) ? tokens : [];
+    const start = (tokenCurrentPage - 1) * TOKENS_PAGE_SIZE;
+    return list.slice(start, start + TOKENS_PAGE_SIZE);
+  }
+
+  function renderTokenSummary(tokens, summary = null) {
+    const list = Array.isArray(tokens) ? tokens : [];
+    const fallbackTotal = list.length;
+    const fallbackActive = list.filter((t) => String(t?.status || "").toLowerCase() === "active").length;
+    const total = Number.isFinite(Number(summary?.total)) ? Number(summary.total) : fallbackTotal;
+    const active = Number.isFinite(Number(summary?.active)) ? Number(summary.active) : fallbackActive;
+    if (tokenTotalCount) tokenTotalCount.textContent = String(total);
+    if (tokenActiveCount) tokenActiveCount.textContent = String(active);
+  }
+
+  function renderTokenPagination(totalCount) {
+    const total = Math.max(0, Number(totalCount || 0));
+    tokenTotalPages = Math.max(1, Math.ceil(total / TOKENS_PAGE_SIZE));
+    tokenCurrentPage = Math.min(Math.max(1, tokenCurrentPage), tokenTotalPages);
+
+    if (tokenPageInfo) {
+      tokenPageInfo.textContent = `第 ${tokenCurrentPage} / ${tokenTotalPages} 页`;
+    }
+    if (tokenPrevBtn) tokenPrevBtn.disabled = tokenCurrentPage <= 1;
+    if (tokenNextBtn) tokenNextBtn.disabled = tokenCurrentPage >= tokenTotalPages;
+    if (tokenPagination) tokenPagination.style.display = total > TOKENS_PAGE_SIZE ? "flex" : "none";
+  }
+
   function syncTokenSelectAllState() {
     if (!tokenSelectAll) return;
-    const tokenIds = latestTokens.map((t) => String(t.id || "")).filter(Boolean);
+    const tokenIds = getCurrentPageTokens().map((t) => String(t.id || "")).filter(Boolean);
     const selectedCount = tokenIds.filter((id) => tokenSelectedIds.has(id)).length;
     const total = tokenIds.length;
+    if (total === 0) {
+      tokenSelectAll.indeterminate = false;
+      tokenSelectAll.checked = false;
+      return;
+    }
     tokenSelectAll.indeterminate = selectedCount > 0 && selectedCount < total;
     tokenSelectAll.checked = total > 0 && selectedCount === total;
   }
@@ -151,21 +201,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     return `<span style="color:#a8bfd8;">${available} / ${total}</span><br><span style="color:#7f96ad;">重置 ${resetText}</span>`;
   }
 
-  function renderTable(tokens) {
+  function renderTable(tokens, summary = null) {
     latestTokens = Array.isArray(tokens) ? tokens : [];
+    renderTokenSummary(latestTokens, summary);
     const availableIds = new Set(latestTokens.map((t) => String(t.id || "")).filter(Boolean));
     Array.from(tokenSelectedIds).forEach((id) => {
       if (!availableIds.has(id)) tokenSelectedIds.delete(id);
     });
 
-    if (!tokens.length) {
+    renderTokenPagination(latestTokens.length);
+    const pageTokens = getCurrentPageTokens();
+
+    if (!latestTokens.length) {
       tbody.innerHTML = `<tr><td colspan="9" class="empty-state">当前没有可用的 Token，请在上方添加。</td></tr>`;
       syncTokenSelectAllState();
       return;
     }
 
     tbody.innerHTML = "";
-    tokens.forEach(t => {
+    pageTokens.forEach(t => {
       const tr = document.createElement("tr");
       const tokenId = String(t.id || "").trim();
       const selectedAttr = tokenSelectedIds.has(tokenId) ? "checked" : "";
@@ -275,13 +329,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (tokenSelectAll) {
     tokenSelectAll.addEventListener("change", () => {
       const checked = Boolean(tokenSelectAll.checked);
+      const pageTokens = getCurrentPageTokens();
       if (checked) {
-        latestTokens.forEach((t) => {
+        pageTokens.forEach((t) => {
           const tid = String(t.id || "").trim();
           if (tid) tokenSelectedIds.add(tid);
         });
       } else {
-        tokenSelectedIds.clear();
+        pageTokens.forEach((t) => {
+          const tid = String(t.id || "").trim();
+          if (tid) tokenSelectedIds.delete(tid);
+        });
       }
       tbody.querySelectorAll("input.token-select").forEach((el) => {
         el.checked = checked;
@@ -1599,6 +1657,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (logsCurrentPage <= 1) return;
       logsCurrentPage -= 1;
       loadLogs();
+    });
+  }
+
+  if (tokenPrevBtn) {
+    tokenPrevBtn.addEventListener("click", () => {
+      if (tokenCurrentPage <= 1) return;
+      tokenCurrentPage -= 1;
+      renderTable(latestTokens, null);
+    });
+  }
+
+  if (tokenNextBtn) {
+    tokenNextBtn.addEventListener("click", () => {
+      if (tokenCurrentPage >= tokenTotalPages) return;
+      tokenCurrentPage += 1;
+      renderTable(latestTokens, null);
     });
   }
 

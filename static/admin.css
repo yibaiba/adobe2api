@@ -374,6 +374,20 @@ button.small:hover {
   overflow-x: auto;
 }
 
+.token-summary {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: -6px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.token-summary strong {
+  color: #e7f1fd;
+  font-size: 16px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

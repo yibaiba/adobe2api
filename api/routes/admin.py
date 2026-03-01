@@ -158,7 +158,18 @@ def build_admin_router(
                 continue
             pid = str(item.get("refresh_profile_id") or "").strip()
             item["auto_refresh_enabled"] = refresh_manager.is_profile_enabled(pid)
-        return {"tokens": tokens}
+        total_count = len(tokens)
+        active_count = 0
+        for item in tokens:
+            if str(item.get("status") or "").strip().lower() == "active":
+                active_count += 1
+        return {
+            "tokens": tokens,
+            "summary": {
+                "total": total_count,
+                "active": active_count,
+            },
+        }
 
     @router.post("/api/v1/tokens")
     def add_token(req: TokenAddRequest, request: Request):
