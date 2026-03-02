@@ -618,6 +618,21 @@ td {
   background: rgba(225, 96, 104, 0.16);
 }
 
+.log-state-btn {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.log-state-btn.failed {
+  border: 1px solid rgba(255, 180, 188, 0.55);
+  background: rgba(255, 180, 188, 0.12);
+}
+
+.log-state-btn.failed:hover {
+  background: rgba(255, 180, 188, 0.22);
+}
+
 .icon-spinner {
   width: 10px;
   height: 10px;
@@ -798,6 +813,37 @@ td input[type="checkbox"] {
 
 .preview-download:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.error-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.error-detail-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #e9f4ff;
+}
+
+.error-detail-content {
+  border: 1px solid rgba(142, 181, 221, 0.25);
+  border-radius: 8px;
+  background: #091321;
+  padding: 12px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+.error-detail-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #cfe3f8;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .toast {

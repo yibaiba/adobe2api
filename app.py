@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 import threading
+import traceback
 import base64
 import binascii
 import io
@@ -34,7 +35,14 @@ from core.adobe_client import (
 from core.token_mgr import token_manager
 from core.config_mgr import config_manager
 from core.refresh_mgr import refresh_manager
-from core.stores import JobStore, LiveRequestStore, RequestLogRecord, RequestLogStore
+from core.stores import (
+    ErrorDetailRecord,
+    ErrorDetailStore,
+    JobStore,
+    LiveRequestStore,
+    RequestLogRecord,
+    RequestLogStore,
+)
 from core.models import (
     MODEL_CATALOG,
     SUPPORTED_RATIOS,
@@ -85,6 +93,7 @@ app.mount("/generated", StaticFiles(directory=GENERATED_DIR), name="generated_fi
 
 store = JobStore()
 log_store = RequestLogStore(DATA_DIR / "request_logs.jsonl", max_items=5000)
+error_store = ErrorDetailStore(DATA_DIR / "request_errors.jsonl", max_items=5000)
 live_log_store = LiveRequestStore(max_items=2000)
 client = AdobeClient()
 refresh_manager.start()
@@ -140,6 +149,84 @@ def _set_request_preview(request: Request, url: str, kind: str = "image") -> Non
         pass
 
 
+def _set_request_error_detail(
+    request: Request,
+    *,
+    error: Exception | str,
+    status_code: Optional[int] = None,
+    error_type: Optional[str] = None,
+    include_traceback: bool = False,
+) -> str:
+    code = f"ERR-{uuid.uuid4().hex[:10].upper()}"
+    message = str(error or "Unknown error").strip() or "Unknown error"
+    trace_text = None
+    error_class = None
+    if isinstance(error, Exception):
+        error_class = type(error).__name__
+        if include_traceback:
+            trace_text = traceback.format_exc()
+            if not trace_text or trace_text.strip() == "NoneType: None":
+                trace_text = "".join(
+                    traceback.format_exception(type(error), error, error.__traceback__)
+                )
+    elif include_traceback:
+        trace_text = traceback.format_exc()
+        if trace_text and trace_text.strip() == "NoneType: None":
+            trace_text = None
+
+    op_map = {
+        "/v1/chat/completions": "chat.completions",
+        "/v1/images/generations": "images.generations",
+        "/api/v1/generate": "api.generate",
+    }
+    path = str(getattr(getattr(request, "url", None), "path", "") or "")
+    operation = op_map.get(path, "")
+
+    record = ErrorDetailRecord(
+        code=code,
+        ts=time.time(),
+        message=message,
+        error_type=(str(error_type or "").strip() or None),
+        status_code=int(status_code) if status_code is not None else None,
+        operation=operation or None,
+        method=str(getattr(request, "method", "") or "").upper() or None,
+        path=path or None,
+        log_id=str(getattr(request.state, "log_id", "") or "") or None,
+        model=str(getattr(request.state, "log_model", "") or "") or None,
+        prompt_preview=(
+            str(getattr(request.state, "log_prompt_preview", "") or "") or None
+        ),
+        task_status=str(getattr(request.state, "log_task_status", "") or "") or None,
+        task_progress=getattr(request.state, "log_task_progress", None),
+        upstream_job_id=(
+            str(getattr(request.state, "log_upstream_job_id", "") or "") or None
+        ),
+        token_id=str(getattr(request.state, "log_token_id", "") or "") or None,
+        token_account_name=(
+            str(getattr(request.state, "log_token_account_name", "") or "") or None
+        ),
+        token_account_email=(
+            str(getattr(request.state, "log_token_account_email", "") or "") or None
+        ),
+        token_source=str(getattr(request.state, "log_token_source", "") or "") or None,
+        token_attempt=getattr(request.state, "log_token_attempt", None),
+        exception_class=error_class,
+        traceback=(str(trace_text or "") or None),
+    )
+    error_store.add(record)
+    request.state.log_error = message[:240]
+    request.state.log_error_code = code
+    _upsert_live_request(
+        request,
+        {
+            "error": message[:240],
+            "error_code": code,
+            "ts": time.time(),
+        },
+    )
+    return code
+
+
 def _set_request_task_progress(
     request: Request,
     task_status: str,
@@ -184,6 +271,7 @@ def _set_request_task_progress(
                 "upstream_job_id": patch.get("upstream_job_id"),
                 "retry_after": patch.get("retry_after"),
                 "error": patch.get("error"),
+                "error_code": getattr(request.state, "log_error_code", None),
                 "model": getattr(request.state, "log_model", None),
                 "prompt_preview": getattr(request.state, "log_prompt_preview", None),
                 "ts": time.time(),
@@ -229,6 +317,7 @@ def _append_attempt_log(
     attempt_started: float,
     status_code: int,
     error: Optional[str] = None,
+    error_code: Optional[str] = None,
     task_status_override: Optional[str] = None,
 ) -> None:
     try:
@@ -262,6 +351,7 @@ def _append_attempt_log(
                 model=model,
                 prompt_preview=prompt_preview,
                 error=(str(error)[:240] if error else None),
+                error_code=(str(error_code or "") or None),
                 task_status=task_status,
                 task_progress=task_progress,
                 upstream_job_id=upstream_job_id,
@@ -345,6 +435,13 @@ async def request_logger(request: Request, call_next):
         response = await call_next(request)
         status_code = response.status_code
     except Exception as exc:
+        _set_request_error_detail(
+            request,
+            error=exc,
+            status_code=500,
+            error_type="server_error",
+            include_traceback=True,
+        )
         error_text = f"{type(exc).__name__}: {str(exc)}"[:240]
         logger.exception(
             "Unhandled exception in request pipeline method=%s path=%s log_id=%s",
@@ -377,6 +474,20 @@ async def request_logger(request: Request, call_next):
                 upstream_job_id = getattr(request.state, "log_upstream_job_id", None)
                 retry_after = getattr(request.state, "log_retry_after", None)
                 error_final = getattr(request.state, "log_error", None) or error_text
+                error_code = getattr(request.state, "log_error_code", None)
+                if int(status_code or 0) >= 400 and not error_code:
+                    generated_error_type = (
+                        "invalid_request_error"
+                        if 400 <= int(status_code or 0) < 500
+                        else "server_error"
+                    )
+                    error_code = _set_request_error_detail(
+                        request,
+                        error=error_final or f"HTTP {status_code}",
+                        status_code=int(status_code or 500),
+                        error_type=generated_error_type,
+                        include_traceback=False,
+                    )
                 token_id = getattr(request.state, "log_token_id", None)
                 token_account_name = getattr(
                     request.state, "log_token_account_name", None
@@ -406,6 +517,7 @@ async def request_logger(request: Request, call_next):
                             model=body_meta.get("model"),
                             prompt_preview=body_meta.get("prompt_preview"),
                             error=error_final,
+                            error_code=error_code,
                             task_status=task_status,
                             task_progress=task_progress,
                             upstream_job_id=upstream_job_id,
@@ -446,10 +558,12 @@ def _run_with_token_retries(
     request: Request,
     operation_name: str,
     run_once: Callable[[str], Any],
+    set_request_error_detail: Optional[Callable[..., str]] = None,
 ) -> Any:
     max_attempts = client.retry_max_attempts if client.retry_enabled else 1
     max_attempts = max(1, int(max_attempts))
     last_exc: Optional[Exception] = None
+    report_error = set_request_error_detail or _set_request_error_detail
 
     for attempt in range(1, max_attempts + 1):
         token = token_manager.get_available(strategy=client.token_rotation_strategy)
@@ -475,6 +589,13 @@ def _run_with_token_retries(
             last_exc = exc
             retryable = attempt < max_attempts
             retry_reason = "quota_exhausted"
+            err_code = report_error(
+                request,
+                error=exc,
+                status_code=429,
+                error_type="rate_limit_error",
+                include_traceback=False,
+            )
             _append_attempt_log(
                 request=request,
                 operation=operation_name,
@@ -483,6 +604,7 @@ def _run_with_token_retries(
                 attempt_started=attempt_started,
                 status_code=429,
                 error=str(exc),
+                error_code=err_code,
                 task_status_override="FAILED",
             )
         except AuthError as exc:
@@ -490,6 +612,13 @@ def _run_with_token_retries(
             last_exc = exc
             retryable = attempt < max_attempts
             retry_reason = "auth"
+            err_code = report_error(
+                request,
+                error=exc,
+                status_code=401,
+                error_type="authentication_error",
+                include_traceback=False,
+            )
             _append_attempt_log(
                 request=request,
                 operation=operation_name,
@@ -498,6 +627,7 @@ def _run_with_token_retries(
                 attempt_started=attempt_started,
                 status_code=401,
                 error=str(exc),
+                error_code=err_code,
                 task_status_override="FAILED",
             )
         except UpstreamTemporaryError as exc:
@@ -508,6 +638,13 @@ def _run_with_token_retries(
             status_part = f"status={exc.status_code}" if exc.status_code else "status=?"
             type_part = f"type={exc.error_type or 'temporary'}"
             retry_reason = f"upstream_temporary {status_part} {type_part}"
+            err_code = report_error(
+                request,
+                error=exc,
+                status_code=int(exc.status_code or 503),
+                error_type=str(exc.error_type or "server_error"),
+                include_traceback=False,
+            )
             _append_attempt_log(
                 request=request,
                 operation=operation_name,
@@ -516,9 +653,21 @@ def _run_with_token_retries(
                 attempt_started=attempt_started,
                 status_code=int(exc.status_code or 503),
                 error=str(exc),
+                error_code=err_code,
                 task_status_override="FAILED",
             )
         except HTTPException as exc:
+            err_code = report_error(
+                request,
+                error=str(exc.detail),
+                status_code=int(exc.status_code or 500),
+                error_type=(
+                    "invalid_request_error"
+                    if 400 <= int(exc.status_code or 500) < 500
+                    else "server_error"
+                ),
+                include_traceback=False,
+            )
             _append_attempt_log(
                 request=request,
                 operation=operation_name,
@@ -527,10 +676,18 @@ def _run_with_token_retries(
                 attempt_started=attempt_started,
                 status_code=int(exc.status_code or 500),
                 error=str(exc.detail),
+                error_code=err_code,
                 task_status_override="FAILED",
             )
             raise
-        except Exception:
+        except Exception as exc:
+            err_code = report_error(
+                request,
+                error=exc,
+                status_code=500,
+                error_type="server_error",
+                include_traceback=True,
+            )
             _append_attempt_log(
                 request=request,
                 operation=operation_name,
@@ -539,6 +696,7 @@ def _run_with_token_retries(
                 attempt_started=attempt_started,
                 status_code=500,
                 error="Unhandled runtime error",
+                error_code=err_code,
                 task_status_override="FAILED",
             )
             raise
@@ -1013,6 +1171,7 @@ app.include_router(
         config_manager=config_manager,
         refresh_manager=refresh_manager,
         log_store=log_store,
+        error_store=error_store,
         live_log_store=live_log_store,
         require_admin_auth=_require_admin_auth,
         is_admin_authenticated=_is_admin_authenticated,
@@ -1035,6 +1194,7 @@ app.include_router(
         require_service_api_key=_require_service_api_key,
         set_request_task_progress=_set_request_task_progress,
         run_with_token_retries=_run_with_token_retries,
+        set_request_error_detail=_set_request_error_detail,
         set_request_preview=_set_request_preview,
         public_image_url=_public_image_url,
         public_generated_url=_public_generated_url,

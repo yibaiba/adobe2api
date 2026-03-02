@@ -230,49 +230,6 @@ class RefreshManager:
         items.sort(key=lambda x: int(x.get("imported_at") or 0), reverse=True)
         return items
 
-    def export_bundles(self, ids: Optional[List[str]] = None) -> List[Dict]:
-        selected_ids = None
-        if isinstance(ids, list):
-            normalized = [str(x or "").strip() for x in ids]
-            selected_ids = {x for x in normalized if x}
-        with self._lock:
-            out: List[Dict] = []
-            for p in self._profiles:
-                pid = str(p.get("id") or "").strip()
-                if selected_ids is not None and pid not in selected_ids:
-                    continue
-                endpoint = (
-                    p.get("endpoint") if isinstance(p.get("endpoint"), dict) else {}
-                )
-                form = (
-                    endpoint.get("form")
-                    if isinstance(endpoint.get("form"), dict)
-                    else {}
-                )
-                headers = (
-                    endpoint.get("headers")
-                    if isinstance(endpoint.get("headers"), dict)
-                    else {}
-                )
-                bundle = {
-                    "endpoint": {
-                        "url": str(endpoint.get("url") or "").strip(),
-                        "method": str(endpoint.get("method") or "POST").strip()
-                        or "POST",
-                        "form": dict(form),
-                        "headers": dict(headers),
-                    }
-                }
-                out.append(
-                    {
-                        "id": pid,
-                        "name": str(p.get("name") or "").strip(),
-                        "enabled": bool(p.get("enabled", True)),
-                        "bundle": bundle,
-                    }
-                )
-            return out
-
     @staticmethod
     def _cookie_string_from_input(cookie_input) -> str:
         if isinstance(cookie_input, str):
@@ -311,27 +268,64 @@ class RefreshManager:
         cookie = self._cookie_string_from_input(cookie_input)
         if not cookie:
             raise ValueError("cookie is required")
-        bundle = {
-            "endpoint": {
-                "url": self.DEFAULT_REFRESH_URL,
-                "method": "POST",
-                "form": {
-                    "client_id": "clio-playground-web",
-                    "guest_allowed": "true",
-                    "scope": self.DEFAULT_SCOPE,
-                },
-                "headers": {
-                    "Accept": "*/*",
-                    "Accept-Language": "zh-CN,zh;q=0.9",
-                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                    "Cookie": cookie,
-                    "Origin": "https://firefly.adobe.com",
-                    "Referer": "https://firefly.adobe.com/",
-                    "User-Agent": "Mozilla/5.0",
-                },
+        validated = self._validate_bundle(
+            {
+                "endpoint": {
+                    "url": self.DEFAULT_REFRESH_URL,
+                    "method": "POST",
+                    "form": {
+                        "client_id": "clio-playground-web",
+                        "guest_allowed": "true",
+                        "scope": self.DEFAULT_SCOPE,
+                    },
+                    "headers": {
+                        "Accept": "*/*",
+                        "Accept-Language": "zh-CN,zh;q=0.9",
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "Cookie": cookie,
+                        "Origin": "https://firefly.adobe.com",
+                        "Referer": "https://firefly.adobe.com/",
+                        "User-Agent": "Mozilla/5.0",
+                    },
+                }
             }
+        )
+
+        now_ts = int(time.time())
+        profile_id = uuid.uuid4().hex[:8]
+        profile_name = str(name or "").strip()
+        if not profile_name:
+            profile_name = (
+                f"{validated['endpoint']['form']['client_id']}-{profile_id[:4]}"
+            )
+
+        new_profile = {
+            "id": profile_id,
+            "name": profile_name,
+            "enabled": True,
+            "imported_at": now_ts,
+            "endpoint": validated["endpoint"],
+            "account": {
+                "display_name": "",
+                "email": "",
+                "user_id": "",
+                "source": "",
+                "updated_at": None,
+            },
+            "state": {
+                "last_attempt_at": None,
+                "last_success_at": None,
+                "last_error": "",
+                "last_http_status": None,
+                "next_retry_at": time.time() + self._refresh_interval_seconds(),
+                "consecutive_failures": 0,
+            },
         }
-        return self.import_bundle(bundle, name=name)
+
+        with self._lock:
+            self._profiles.append(new_profile)
+            self._save_profiles()
+            return self._summary_locked(new_profile)
 
     def export_cookies(self, ids: Optional[List[str]] = None) -> List[Dict]:
         selected_ids = None
@@ -371,42 +365,6 @@ class RefreshManager:
             if not target:
                 return None
             return bool(target.get("enabled", True))
-
-    def import_bundle(self, bundle: Dict, name: Optional[str] = None) -> Dict:
-        validated = self._validate_bundle(bundle)
-        now_ts = int(time.time())
-        profile_id = uuid.uuid4().hex[:8]
-        profile_name = str(name or "").strip()
-        if not profile_name:
-            profile_name = (
-                f"{validated['endpoint']['form']['client_id']}-{profile_id[:4]}"
-            )
-        new_profile = {
-            "id": profile_id,
-            "name": profile_name,
-            "enabled": True,
-            "imported_at": now_ts,
-            "endpoint": validated["endpoint"],
-            "account": {
-                "display_name": "",
-                "email": "",
-                "user_id": "",
-                "source": "",
-                "updated_at": None,
-            },
-            "state": {
-                "last_attempt_at": None,
-                "last_success_at": None,
-                "last_error": "",
-                "last_http_status": None,
-                "next_retry_at": time.time() + self._refresh_interval_seconds(),
-                "consecutive_failures": 0,
-            },
-        }
-        with self._lock:
-            self._profiles.append(new_profile)
-            self._save_profiles()
-            return self._summary_locked(new_profile)
 
     def _find_profile_locked(self, profile_id: str) -> Optional[Dict]:
         for p in self._profiles:

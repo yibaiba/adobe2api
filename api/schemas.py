@@ -45,20 +45,6 @@ class ConfigUpdateRequest(BaseModel):
     generated_prune_size_mb: Optional[int] = None
 
 
-class RefreshProfileImportRequest(BaseModel):
-    bundle: dict
-    name: Optional[str] = None
-
-
-class RefreshProfileBatchImportItem(BaseModel):
-    bundle: dict
-    name: Optional[str] = None
-
-
-class RefreshProfileBatchImportRequest(BaseModel):
-    items: List[RefreshProfileBatchImportItem]
-
-
 class RefreshCookieImportRequest(BaseModel):
     cookie: Any
     name: Optional[str] = None

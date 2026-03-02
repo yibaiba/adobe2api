@@ -60,10 +60,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const openAddTokenModalBtn = document.getElementById("openAddTokenModalBtn");
   const tokenModal = document.getElementById("tokenModal");
   const tokenModalCloseBtn = document.getElementById("tokenModalCloseBtn");
-  const openRefreshModalBtn = document.getElementById("openRefreshModalBtn");
   const openCookieImportBtn = document.getElementById("openCookieImportBtn");
   const exportTokensBtn = document.getElementById("exportTokensBtn");
-  const exportBundlesBtn = document.getElementById("exportBundlesBtn");
   const exportCookiesBtn = document.getElementById("exportCookiesBtn");
   const refreshModal = document.getElementById("refreshModal");
   const refreshModalCloseBtn = document.getElementById("refreshModalCloseBtn");
@@ -381,12 +379,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  if (openRefreshModalBtn) {
-    openRefreshModalBtn.addEventListener("click", async () => {
-      await loadRefreshProfiles();
-      openDialog(refreshModal);
-    });
-  }
   if (openCookieImportBtn) {
     openCookieImportBtn.addEventListener("click", async () => {
       await loadRefreshProfiles();
@@ -565,48 +557,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  if (exportBundlesBtn) {
-    exportBundlesBtn.addEventListener("click", async () => {
-      exportBundlesBtn.disabled = true;
-      try {
-        const selectedIds = Array.from(refreshSelectedIds);
-        const payload = selectedIds.length ? { ids: selectedIds } : { ids: null };
-        const res = await fetch("/api/v1/refresh-profiles/export", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(txt || "导出 Refresh Bundle 失败");
-        }
-        const data = await res.json();
-        const total = Number(data.total || 0);
-        if (total <= 0) {
-          alert("没有可导出的 Refresh Bundle");
-          return;
-        }
-        const output = {
-          exported_at: Math.floor(Date.now() / 1000),
-          total,
-          items: Array.isArray(data.items)
-            ? data.items.map((it) => ({
-                id: it.id,
-                name: it.name,
-                bundle: it.bundle,
-              }))
-            : [],
-        };
-        downloadJsonFile(`refresh-bundles-export-${nowStamp()}.json`, output);
-        alert(`导出成功：${total} 个 Refresh Bundle`);
-      } catch (err) {
-        alert(err.message || "导出 Refresh Bundle 失败");
-      } finally {
-        exportBundlesBtn.disabled = false;
-      }
-    });
-  }
-
   if (exportCookiesBtn) {
     exportCookiesBtn.addEventListener("click", async () => {
       exportCookiesBtn.disabled = true;
@@ -671,9 +621,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const configCatPanes = document.querySelectorAll(".config-cat-pane");
   const saveConfigBtn = document.getElementById("saveConfigBtn");
   const configMsg = document.getElementById("configMsg");
-  const refreshBundleInput = document.getElementById("refreshBundleInput");
-  const refreshBundleFile = document.getElementById("refreshBundleFile");
-  const importRefreshBtn = document.getElementById("importRefreshBtn");
   const cookieInput = document.getElementById("cookieInput");
   const cookieFile = document.getElementById("cookieFile");
   const importCookieBtn = document.getElementById("importCookieBtn");
@@ -698,6 +645,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const previewContent = document.getElementById("previewContent");
   const previewCloseBtn = document.getElementById("previewCloseBtn");
   const previewDownloadBtn = document.getElementById("previewDownloadBtn");
+  const errorDetailModal = document.getElementById("errorDetailModal");
+  const errorDetailCode = document.getElementById("errorDetailCode");
+  const errorDetailContent = document.getElementById("errorDetailContent");
+  const errorDetailCloseBtn = document.getElementById("errorDetailCloseBtn");
   const appToast = document.getElementById("appToast");
   const LOGS_PAGE_SIZE = 20;
   let logsCurrentPage = 1;
@@ -1063,123 +1014,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  async function importRefreshBundle() {
-    const text = String(refreshBundleInput?.value || "").trim();
-    if (!text) {
-      showMsg(refreshMsg, "请先粘贴或上传 JSON", true);
-      return;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      showMsg(refreshMsg, "JSON 格式错误", true);
-      return;
-    }
-
-    const toBatchItems = (value) => {
-      if (Array.isArray(value)) {
-        return value.map((item, idx) => {
-          if (!item || typeof item !== "object") {
-            throw new Error(`第 ${idx + 1} 项不是对象`);
-          }
-          if (item.bundle && typeof item.bundle === "object") {
-            return {
-              bundle: item.bundle,
-              name: String(item.name || "").trim() || null,
-            };
-          }
-          return {
-            bundle: item,
-            name: null,
-          };
-        });
-      }
-
-      if (value && typeof value === "object" && Array.isArray(value.items)) {
-        return toBatchItems(value.items);
-      }
-
-      if (value && typeof value === "object") {
-        return [
-          {
-            bundle: value,
-            name: null,
-          },
-        ];
-      }
-      throw new Error("导入 JSON 必须是对象或数组");
-    };
-
-    let items = [];
-    try {
-      items = toBatchItems(parsed);
-    } catch (err) {
-      showMsg(refreshMsg, err.message || "导入数据格式错误", true);
-      return;
-    }
-
-    if (!items.length) {
-      showMsg(refreshMsg, "未找到可导入的 bundle", true);
-      return;
-    }
-
-    try {
-      const endpoint = items.length > 1
-        ? "/api/v1/refresh-profiles/import-batch"
-        : "/api/v1/refresh-profiles/import";
-      const payload = items.length > 1
-        ? { items }
-        : { bundle: items[0].bundle, name: items[0].name || null };
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        let detailText = "导入失败";
-        try {
-          const body = await res.json();
-          const detail = body?.detail;
-          if (typeof detail === "string") {
-            detailText = detail;
-          } else if (detail && typeof detail === "object") {
-            const failedCount = Number(detail.failed_count || 0);
-            const refreshFailedCount = Number(detail.refresh_failed_count || 0);
-            detailText = `导入失败（成功 ${Number(detail.imported_count || 0)}，导入失败 ${failedCount}，刷新失败 ${refreshFailedCount}）`;
-          }
-        } catch (_) {
-          const txt = await res.text();
-          if (txt) detailText = txt;
-        }
-        throw new Error(detailText);
-      }
-      const result = await res.json();
-      if (items.length > 1) {
-        const okCount = Number(result.imported_count || 0);
-        const failedCount = Number(result.failed_count || 0);
-        const refreshFailedCount = Number(result.refresh_failed_count || 0);
-        showMsg(
-          refreshMsg,
-          `批量导入完成：成功 ${okCount}，导入失败 ${failedCount}，刷新失败 ${refreshFailedCount}`,
-          failedCount > 0 || refreshFailedCount > 0
-        );
-      } else {
-        const refreshError = String(result.refresh_error || "").trim();
-        if (refreshError) {
-          showMsg(refreshMsg, `导入成功，但自动刷新失败：${refreshError}`, true);
-        } else {
-          showMsg(refreshMsg, "导入成功，并已自动刷新", false);
-        }
-      }
-      if (refreshBundleInput) refreshBundleInput.value = "";
-      if (refreshBundleFile) refreshBundleFile.value = "";
-      await loadRefreshProfiles();
-    } catch (err) {
-      showMsg(refreshMsg, err.message || "导入失败", true);
-    }
-  }
-
   function cookieToHeaderString(value) {
     if (typeof value === "string") {
       const txt = value.trim();
@@ -1364,38 +1198,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     await deleteRefreshProfile(String(id || ""));
   };
 
-  if (refreshBundleFile) {
-    refreshBundleFile.addEventListener("change", async () => {
-      const files = refreshBundleFile.files ? Array.from(refreshBundleFile.files) : [];
-      if (!files.length) return;
-      try {
-        if (files.length === 1) {
-          const text = await files[0].text();
-          if (refreshBundleInput) refreshBundleInput.value = text;
-          return;
-        }
-
-        const items = [];
-        for (const file of files) {
-          const raw = await file.text();
-          const parsed = JSON.parse(raw);
-          const baseName = String(file.name || "")
-            .replace(/\.json$/i, "")
-            .trim();
-          items.push({
-            name: baseName || null,
-            bundle: parsed,
-          });
-        }
-        if (refreshBundleInput) {
-          refreshBundleInput.value = JSON.stringify(items, null, 2);
-        }
-      } catch (err) {
-        showMsg(refreshMsg, "读取文件失败", true);
-      }
-    });
-  }
-
   if (cookieFile) {
     cookieFile.addEventListener("change", async () => {
       const files = cookieFile.files ? Array.from(cookieFile.files) : [];
@@ -1433,7 +1235,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  if (importRefreshBtn) importRefreshBtn.addEventListener("click", importRefreshBundle);
   if (importCookieBtn) importCookieBtn.addEventListener("click", importCookies);
   // profile operation handlers are attached as window methods above.
 
@@ -1538,6 +1339,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       : (isFailed
         ? `<span class="icon-error" aria-hidden="true">!</span>`
         : `<span class="icon-check" aria-hidden="true">✓</span>`);
+    const errCode = String(item.error_code || "").trim();
+    const failedStatusText = status > 0 ? String(status) : "-";
+    const failedStateContent = errCode
+      ? `<button class="log-state log-state-btn failed" data-error-code="${escapeHtml(errCode)}" type="button">${stateIcon}<span>${escapeHtml(failedStatusText)}</span></button>`
+      : `<span class="log-state failed"><span class="icon-error" aria-hidden="true">!</span><span>${escapeHtml(failedStatusText)}</span></span>`;
+    const stateContent = isFailed ? failedStateContent : `${stateIcon}<span>${stateLabel}</span>`;
+    const statusCell = isFailed ? stateContent : `<span class="log-state ${stateClass}">${stateContent}</span>`;
     const taskProgressRaw = Number(item.task_progress);
     const progressCell = taskStatus === "IN_PROGRESS"
       ? `<span class="status-badge status-active">${Number.isFinite(taskProgressRaw) ? Math.round(taskProgressRaw) : 0}%</span>`
@@ -1568,7 +1376,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       : `<span style="color:#7f96ad;">-</span>`;
     tr.innerHTML = `
       <td class="log-time-cell"><span class="date">${dateText}</span><span class="time">${timeText}</span></td>
-      <td><span class="log-state ${stateClass}">${stateIcon}<span>${stateLabel}</span></span></td>
+      <td>${statusCell}</td>
       <td style="color:#a8bfd8;">${t}</td>
       <td>${progressCell}</td>
       <td title="${tokenTitle}">${tokenCell}</td>
@@ -1651,6 +1459,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  function closeErrorDetail() {
+    if (!errorDetailModal || !errorDetailContent || !errorDetailCode) return;
+    errorDetailModal.classList.remove("open");
+    errorDetailModal.setAttribute("aria-hidden", "true");
+    errorDetailCode.textContent = "错误信息";
+    errorDetailContent.innerHTML = "";
+  }
+
+  async function openErrorDetailByCode(code) {
+    const errCode = String(code || "").trim();
+    if (!errCode || !errorDetailModal || !errorDetailCode || !errorDetailContent) return;
+    errorDetailCode.textContent = "错误信息";
+    errorDetailContent.innerHTML = `<pre>加载中...</pre>`;
+    errorDetailModal.classList.add("open");
+    errorDetailModal.setAttribute("aria-hidden", "false");
+    try {
+      const res = await fetch(`/api/v1/logs/errors/${encodeURIComponent(errCode)}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `获取错误详情失败 (${res.status})`);
+      }
+      const data = await res.json();
+      const message = String(data?.message || "").trim() || "暂无错误信息";
+      errorDetailContent.innerHTML = `<pre>${escapeHtml(message)}</pre>`;
+    } catch (err) {
+      errorDetailContent.innerHTML = `<pre>${escapeHtml(err.message || "获取错误详情失败")}</pre>`;
+    }
+  }
+
   function buildDownloadFilename(url, kind) {
     try {
       const u = new URL(url, window.location.origin);
@@ -1682,11 +1519,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (logsTbody) {
     logsTbody.addEventListener("click", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.classList.contains("preview-btn")) return;
-      const encodedUrl = target.getAttribute("data-url") || "";
-      const kind = (target.getAttribute("data-kind") || "").trim();
-      if (!encodedUrl) return;
-      openPreview(decodeURIComponent(encodedUrl), kind);
+      if (!(target instanceof HTMLElement)) return;
+      if (target.classList.contains("preview-btn")) {
+        const encodedUrl = target.getAttribute("data-url") || "";
+        const kind = (target.getAttribute("data-kind") || "").trim();
+        if (!encodedUrl) return;
+        openPreview(decodeURIComponent(encodedUrl), kind);
+        return;
+      }
+      const clickableErrorEl = target.closest("[data-error-code]");
+      if (clickableErrorEl instanceof HTMLElement) {
+        const code = String(clickableErrorEl.getAttribute("data-error-code") || "").trim();
+        if (!code) return;
+        openErrorDetailByCode(code);
+      }
     });
   }
 
@@ -1700,9 +1546,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  if (errorDetailCloseBtn) {
+    errorDetailCloseBtn.addEventListener("click", closeErrorDetail);
+  }
+
+  if (errorDetailModal) {
+    errorDetailModal.addEventListener("click", (event) => {
+      if (event.target === errorDetailModal) closeErrorDetail();
+    });
+  }
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closePreview();
+      closeErrorDetail();
       closeDialog(tokenModal);
       closeDialog(refreshModal);
     }

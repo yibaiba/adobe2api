@@ -267,45 +267,27 @@ curl -X POST "http://127.0.0.1:6001/v1/images/generations" \
 - `GET /api/v1/logs?limit=200`
 - `DELETE /api/v1/logs`
 - `GET /api/v1/refresh-profiles`
-- `POST /api/v1/refresh-profiles/import`
-- `POST /api/v1/refresh-profiles/import-batch`
+- `POST /api/v1/refresh-profiles/import-cookie`
+- `POST /api/v1/refresh-profiles/import-cookie-batch`
 - `POST /api/v1/refresh-profiles/{id}/refresh-now`
 - `PUT /api/v1/refresh-profiles/{id}/enabled`
 - `DELETE /api/v1/refresh-profiles/{id}`
 
-## 5) Refresh-bundle plugin usage
+## 5) Cookie import usage
 
-Project root includes standalone plugin:
+Import flow:
 
-- `at-refresh-capture-extension/`
-
-Purpose:
-
-- capture minimal data required by Adobe check-token endpoint
-- export `adobe_refresh_bundle` JSON (sensitive)
-
-Load plugin in Chrome:
-
-1. Open `chrome://extensions`
-2. Enable Developer mode
-3. Click `Load unpacked`
-4. Select `at-refresh-capture-extension`
-
-Capture and import flow:
-
-1. Open `https://firefly.adobe.com/` and login
-2. Click plugin popup -> `Export Refresh Bundle`
-3. Open admin UI `Token 管理` tab
-4. Click `导入 Refresh Bundle`
-5. Paste JSON or upload file
-6. Click `导入` (service auto-runs one refresh immediately)
-7. Token list will show one `自动刷新=是` token per refresh profile
+1. Open admin UI `Token 管理` tab
+2. Click `导入 Cookie`
+3. Paste Cookie string or cookie JSON, or upload `.txt/.json`
+4. Click `导入 Cookie` (service auto-runs one refresh immediately)
+5. Token list will show one `自动刷新=是` token per refresh profile
 
 Batch import notes:
 
-- Upload multiple `.json` files at once in the admin dialog, then click `导入`
+- You can upload multiple files at once in the import dialog
 - Or paste JSON array:
-  - `[{"name":"account-a","bundle":{...}}, {"name":"account-b","bundle":{...}}]`
+  - `[{"name":"account-a","cookie":"k1=v1; k2=v2"}, {"name":"account-b","cookie":[{"name":"k1","value":"v1"}]}]`
 
 ## 6) Storage paths
 
@@ -325,6 +307,6 @@ Generated media retention policy:
 
 ## 7) Security notes
 
-- Refresh bundle contains high-sensitivity cookie/session data.
-- Do not commit/share refresh bundle files.
+- Cookie data contains high-sensitivity session data.
+- Do not commit/share cookie export files.
 - Rotate Adobe session if sensitive data was exposed.

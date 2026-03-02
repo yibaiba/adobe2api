@@ -25,6 +25,7 @@ def build_generation_router(
     require_service_api_key: Callable[[Request], None],
     set_request_task_progress: Callable[..., None],
     run_with_token_retries: Callable[..., Any],
+    set_request_error_detail: Callable[..., str],
     set_request_preview: Callable[[Request, str, str], None],
     public_image_url: Callable[[Request, str], str],
     public_generated_url: Callable[[Request, str], str],
@@ -154,6 +155,15 @@ def build_generation_router(
             )
 
         except quota_error_cls:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error="Token quota exhausted",
+                status_code=429,
+                error_type="rate_limit_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request,
                 task_status="FAILED",
@@ -166,10 +176,20 @@ def build_generation_router(
                     "error": {
                         "message": "Token quota exhausted",
                         "type": "rate_limit_error",
+                        "code": error_code,
                     }
                 },
             )
         except auth_error_cls:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error="Token invalid or expired",
+                status_code=401,
+                error_type="authentication_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request,
                 task_status="FAILED",
@@ -182,31 +202,67 @@ def build_generation_router(
                     "error": {
                         "message": "Token invalid or expired",
                         "type": "authentication_error",
+                        "code": error_code,
                     }
                 },
             )
         except upstream_temp_error_cls as exc:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error=exc,
+                status_code=503,
+                error_type="server_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request, task_status="FAILED", task_progress=0.0, error=str(exc)
             )
             return JSONResponse(
                 status_code=503,
-                content={"error": {"message": str(exc), "type": "server_error"}},
+                content={
+                    "error": {
+                        "message": str(exc),
+                        "type": "server_error",
+                        "code": error_code,
+                    }
+                },
             )
         except HTTPException as exc:
-            set_request_task_progress(
-                request, task_status="FAILED", task_progress=0.0, error=str(exc.detail)
-            )
             err_type = (
                 "invalid_request_error"
                 if 400 <= int(exc.status_code) < 500
                 else "server_error"
             )
+            error_code = set_request_error_detail(
+                request,
+                error=str(exc.detail),
+                status_code=exc.status_code,
+                error_type=err_type,
+                include_traceback=False,
+            )
+            set_request_task_progress(
+                request, task_status="FAILED", task_progress=0.0, error=str(exc.detail)
+            )
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": {"message": str(exc.detail), "type": err_type}},
+                content={
+                    "error": {
+                        "message": str(exc.detail),
+                        "type": err_type,
+                        "code": error_code,
+                    }
+                },
             )
         except Exception as exc:
+            error_code = set_request_error_detail(
+                request,
+                error=exc,
+                status_code=500,
+                error_type="server_error",
+                include_traceback=True,
+            )
             logger.exception(
                 "Unhandled error in /v1/images/generations log_id=%s model=%s",
                 getattr(request.state, "log_id", ""),
@@ -217,7 +273,13 @@ def build_generation_router(
             )
             return JSONResponse(
                 status_code=500,
-                content={"error": {"message": str(exc), "type": "server_error"}},
+                content={
+                    "error": {
+                        "message": str(exc),
+                        "type": "server_error",
+                        "code": error_code,
+                    }
+                },
             )
 
     @router.post("/api/v1/generate")
@@ -552,6 +614,15 @@ def build_generation_router(
                 run_once=_run_once,
             )
         except quota_error_cls:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error="Token quota exhausted",
+                status_code=429,
+                error_type="rate_limit_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request,
                 task_status="FAILED",
@@ -564,10 +635,20 @@ def build_generation_router(
                     "error": {
                         "message": "Token quota exhausted",
                         "type": "rate_limit_error",
+                        "code": error_code,
                     }
                 },
             )
         except auth_error_cls:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error="Token invalid or expired",
+                status_code=401,
+                error_type="authentication_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request,
                 task_status="FAILED",
@@ -580,31 +661,67 @@ def build_generation_router(
                     "error": {
                         "message": "Token invalid or expired",
                         "type": "authentication_error",
+                        "code": error_code,
                     }
                 },
             )
         except upstream_temp_error_cls as exc:
+            error_code = str(
+                getattr(request.state, "log_error_code", "") or ""
+            ) or set_request_error_detail(
+                request,
+                error=exc,
+                status_code=503,
+                error_type="server_error",
+                include_traceback=False,
+            )
             set_request_task_progress(
                 request, task_status="FAILED", task_progress=0.0, error=str(exc)
             )
             return JSONResponse(
                 status_code=503,
-                content={"error": {"message": str(exc), "type": "server_error"}},
+                content={
+                    "error": {
+                        "message": str(exc),
+                        "type": "server_error",
+                        "code": error_code,
+                    }
+                },
             )
         except HTTPException as exc:
-            set_request_task_progress(
-                request, task_status="FAILED", task_progress=0.0, error=str(exc.detail)
-            )
             err_type = (
                 "invalid_request_error"
                 if 400 <= int(exc.status_code) < 500
                 else "server_error"
             )
+            error_code = set_request_error_detail(
+                request,
+                error=str(exc.detail),
+                status_code=exc.status_code,
+                error_type=err_type,
+                include_traceback=False,
+            )
+            set_request_task_progress(
+                request, task_status="FAILED", task_progress=0.0, error=str(exc.detail)
+            )
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": {"message": str(exc.detail), "type": err_type}},
+                content={
+                    "error": {
+                        "message": str(exc.detail),
+                        "type": err_type,
+                        "code": error_code,
+                    }
+                },
             )
         except Exception as exc:
+            error_code = set_request_error_detail(
+                request,
+                error=exc,
+                status_code=500,
+                error_type="server_error",
+                include_traceback=True,
+            )
             logger.exception(
                 "Unhandled error in /v1/chat/completions log_id=%s model=%s resolved_model=%s is_video_model=%s",
                 getattr(request.state, "log_id", ""),
@@ -617,7 +734,13 @@ def build_generation_router(
             )
             return JSONResponse(
                 status_code=500,
-                content={"error": {"message": str(exc), "type": "server_error"}},
+                content={
+                    "error": {
+                        "message": str(exc),
+                        "type": "server_error",
+                        "code": error_code,
+                    }
+                },
             )
 
     return router

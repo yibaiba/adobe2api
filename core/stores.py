@@ -74,6 +74,7 @@ class RequestLogRecord:
     model: Optional[str] = None
     prompt_preview: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
     task_status: Optional[str] = None
     task_progress: Optional[float] = None
     upstream_job_id: Optional[str] = None
@@ -248,6 +249,77 @@ class RequestLogStore:
         with self._lock:
             with self._file_path.open("w", encoding="utf-8") as f:
                 f.write("")
+
+
+@dataclass
+class ErrorDetailRecord:
+    code: str
+    ts: float
+    message: str
+    error_type: Optional[str] = None
+    status_code: Optional[int] = None
+    operation: Optional[str] = None
+    method: Optional[str] = None
+    path: Optional[str] = None
+    log_id: Optional[str] = None
+    model: Optional[str] = None
+    prompt_preview: Optional[str] = None
+    task_status: Optional[str] = None
+    task_progress: Optional[float] = None
+    upstream_job_id: Optional[str] = None
+    token_id: Optional[str] = None
+    token_account_name: Optional[str] = None
+    token_account_email: Optional[str] = None
+    token_source: Optional[str] = None
+    token_attempt: Optional[int] = None
+    exception_class: Optional[str] = None
+    traceback: Optional[str] = None
+
+
+class ErrorDetailStore:
+    def __init__(self, file_path: Path, max_items: int = 5000) -> None:
+        self._file_path = file_path
+        self._lock = threading.Lock()
+        self._max_items = max(200, int(max_items or 5000))
+        self._file_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._file_path.exists():
+            self._file_path.touch()
+
+    def _truncate_to_max_locked(self) -> None:
+        with self._file_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= self._max_items:
+            return
+        kept = lines[-self._max_items :]
+        with self._file_path.open("w", encoding="utf-8") as f:
+            f.writelines(kept)
+
+    def add(self, item: ErrorDetailRecord) -> None:
+        payload = asdict(item)
+        with self._lock:
+            with self._file_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            self._truncate_to_max_locked()
+
+    def get(self, code: str) -> Optional[dict]:
+        target = str(code or "").strip()
+        if not target:
+            return None
+        with self._lock:
+            with self._file_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+        for line in reversed(lines):
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                item = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(item, dict) and str(item.get("code") or "") == target:
+                return item
+        return None
 
 
 class LiveRequestStore:

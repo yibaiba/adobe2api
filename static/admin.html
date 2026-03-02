@@ -31,11 +31,7 @@
         <h2>快捷操作</h2>
         <div class="actions">
           <button id="openAddTokenModalBtn">添加 Token</button>
-          <button id="openRefreshModalBtn" class="secondary">导入 Refresh Bundle</button>
           <button id="openCookieImportBtn" class="secondary">导入 Cookie</button>
-          <button id="exportTokensBtn" class="secondary">导出 Token</button>
-          <button id="exportBundlesBtn" class="secondary">导出 Refresh Bundle</button>
-          <button id="exportCookiesBtn" class="secondary">导出 Cookie</button>
         </div>
       </section>
 
@@ -43,6 +39,8 @@
         <div class="list-head">
           <h2>Token 账号池</h2>
           <div class="actions">
+            <button id="exportTokensBtn" class="secondary">导出 Token</button>
+            <button id="exportCookiesBtn" class="secondary">导出 Cookie</button>
             <button id="refreshCreditsBatchBtn" class="secondary">批量刷新积分</button>
             <button id="refreshBtn" class="secondary">刷新列表</button>
           </div>
@@ -224,7 +222,7 @@
             <button id="clearLogsBtn" class="danger">清空日志</button>
           </div>
         </div>
-        <p class="help" style="margin-bottom: 16px;">仅展示外部 OpenAI 风格请求日志，便于排查真实生图请求。</p>
+        <p class="help" style="margin-bottom: 16px;">仅展示外部 OpenAI 风格请求日志。失败状态中的状态码可点击查看错误信息。</p>
         <div class="stats-grid" id="logsStatsGrid">
           <div class="stat-card">
             <div class="stat-label">图片生成数</div>
@@ -298,29 +296,12 @@
   </div>
 
   <div id="refreshModal" class="dialog-modal" aria-hidden="true">
-    <div class="dialog-card" role="dialog" aria-modal="true" aria-label="导入 Refresh Bundle">
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-label="导入 Cookie">
       <div class="list-head" style="margin-bottom: 10px;">
         <h2>AT 自动刷新</h2>
         <button id="refreshModalCloseBtn" class="secondary small" type="button">关闭</button>
       </div>
       <div class="config-form">
-        <div class="form-group">
-          <label for="refreshBundleInput">导入 Refresh Bundle(JSON)</label>
-          <textarea id="refreshBundleInput" rows="7" placeholder="支持单个对象，或批量数组：[{&quot;name&quot;:&quot;账号A&quot;,&quot;bundle&quot;:{...}},{&quot;name&quot;:&quot;账号B&quot;,&quot;bundle&quot;:{...}}]"></textarea>
-          <p class="help">支持单个或批量导入。导入后会自动立即刷新一次。JSON 含敏感 Cookie，请谨慎保管。</p>
-        </div>
-
-        <div class="form-group">
-          <label for="refreshBundleFile">或上传 JSON 文件（支持多选）</label>
-          <input type="file" id="refreshBundleFile" accept="application/json,.json" multiple />
-        </div>
-
-        <div class="actions">
-          <button id="importRefreshBtn">导入</button>
-        </div>
-
-        <hr style="border: none; border-top: 1px solid var(--border); margin: 14px 0;" />
-
         <div class="form-group">
           <label for="cookieInput">导入 Cookie（支持单个或批量）</label>
           <textarea id="cookieInput" rows="7" placeholder="支持：\n1) Cookie 字符串：k1=v1; k2=v2\n2) 浏览器导出的 cookie 数组 JSON\n3) 批量：[{\"name\":\"账号A\",\"cookie\":\"k=v;...\"},{\"name\":\"账号B\",\"cookie\":[...]}]"></textarea>
@@ -352,8 +333,18 @@
     </div>
   </div>
 
+  <div id="errorDetailModal" class="preview-modal" aria-hidden="true">
+    <div class="preview-modal-dialog" role="dialog" aria-modal="true" aria-label="错误详情">
+      <button id="errorDetailCloseBtn" class="preview-close" type="button">关闭</button>
+      <div class="error-detail-head">
+        <h3 id="errorDetailCode">错误信息</h3>
+      </div>
+      <div id="errorDetailContent" class="error-detail-content"></div>
+    </div>
+  </div>
+
   <div id="appToast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/admin.js?v=20260302-6"></script>
+  <script src="/static/admin.js?v=20260302-7"></script>
 </body>
 </html>

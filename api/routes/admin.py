@@ -13,9 +13,7 @@ from api.schemas import (
     ExportSelectionRequest,
     RefreshCookieBatchImportRequest,
     RefreshCookieImportRequest,
-    RefreshProfileBatchImportRequest,
     RefreshProfileEnabledRequest,
-    RefreshProfileImportRequest,
     TokenAddRequest,
     TokenBatchAddRequest,
     TokenCreditsBatchRefreshRequest,
@@ -29,6 +27,7 @@ def build_admin_router(
     config_manager,
     refresh_manager,
     log_store,
+    error_store,
     live_log_store,
     require_admin_auth: Callable[[Request], None],
     is_admin_authenticated: Callable[[Request], bool],
@@ -103,6 +102,14 @@ def build_admin_router(
             "total": total,
             "total_pages": total_pages,
         }
+
+    @router.get("/api/v1/logs/errors/{code}")
+    def get_error_detail(code: str, request: Request):
+        require_admin_auth(request)
+        item = error_store.get(code)
+        if not item:
+            raise HTTPException(status_code=404, detail="error code not found")
+        return item
 
     @router.get("/api/v1/logs/running")
     def list_running_logs(request: Request, limit: int = 200):
@@ -514,18 +521,6 @@ def build_admin_router(
         require_admin_auth(request)
         return {"profiles": refresh_manager.list_profiles()}
 
-    @router.post("/api/v1/refresh-profiles/export")
-    def refresh_profiles_export(req: ExportSelectionRequest, request: Request):
-        require_admin_auth(request)
-        profile_ids = req.ids if isinstance(req.ids, list) else None
-        exported = refresh_manager.export_bundles(profile_ids)
-        return {
-            "status": "ok",
-            "total": len(exported),
-            "selected": bool(profile_ids),
-            "items": exported,
-        }
-
     @router.post("/api/v1/refresh-profiles/export-cookies")
     def refresh_profiles_export_cookies(req: ExportSelectionRequest, request: Request):
         require_admin_auth(request)
@@ -537,28 +532,6 @@ def build_admin_router(
             "selected": bool(profile_ids),
             "items": exported,
         }
-
-    @router.post("/api/v1/refresh-profiles/import")
-    def refresh_profiles_import(req: RefreshProfileImportRequest, request: Request):
-        require_admin_auth(request)
-        try:
-            profile = refresh_manager.import_bundle(req.bundle, name=req.name)
-            refresh_result = None
-            refresh_error = ""
-            try:
-                refresh_result = refresh_manager.refresh_once(
-                    str(profile.get("id") or "")
-                )
-            except Exception as exc:
-                refresh_error = str(exc)
-            return {
-                "status": "ok" if not refresh_error else "partial",
-                "profile": profile,
-                "refresh_result": refresh_result,
-                "refresh_error": refresh_error,
-            }
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
 
     @router.post("/api/v1/refresh-profiles/import-cookie")
     def refresh_profiles_import_cookie(
@@ -583,72 +556,6 @@ def build_admin_router(
             }
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-
-    @router.post("/api/v1/refresh-profiles/import-batch")
-    def refresh_profiles_import_batch(
-        req: RefreshProfileBatchImportRequest, request: Request
-    ):
-        require_admin_auth(request)
-        if not req.items:
-            raise HTTPException(status_code=400, detail="items is required")
-
-        imported = []
-        failed = []
-        refreshed = []
-        refresh_failed = []
-        for idx, item in enumerate(req.items):
-            try:
-                profile = refresh_manager.import_bundle(item.bundle, name=item.name)
-                imported.append(profile)
-                try:
-                    refresh_result = refresh_manager.refresh_once(
-                        str(profile.get("id") or "")
-                    )
-                    refreshed.append(
-                        {
-                            "index": idx,
-                            "profile_id": profile.get("id"),
-                            "profile_name": profile.get("name"),
-                            "result": refresh_result,
-                        }
-                    )
-                except Exception as exc:
-                    refresh_failed.append(
-                        {
-                            "index": idx,
-                            "profile_id": profile.get("id"),
-                            "profile_name": profile.get("name"),
-                            "detail": str(exc),
-                        }
-                    )
-            except ValueError as exc:
-                failed.append(
-                    {
-                        "index": idx,
-                        "name": item.name,
-                        "detail": str(exc),
-                    }
-                )
-
-        result = {
-            "status": (
-                "ok"
-                if (not failed and not refresh_failed)
-                else ("partial" if imported else "failed")
-            ),
-            "total": len(req.items),
-            "imported_count": len(imported),
-            "failed_count": len(failed),
-            "refreshed_count": len(refreshed),
-            "refresh_failed_count": len(refresh_failed),
-            "profiles": imported,
-            "failed": failed,
-            "refreshed": refreshed,
-            "refresh_failed": refresh_failed,
-        }
-        if not imported:
-            raise HTTPException(status_code=400, detail=result)
-        return result
 
     @router.post("/api/v1/refresh-profiles/import-cookie-batch")
     def refresh_profiles_import_cookie_batch(
