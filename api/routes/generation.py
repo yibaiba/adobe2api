@@ -28,12 +28,13 @@ def build_generation_router(
     set_request_preview: Callable[[Request, str, str], None],
     public_image_url: Callable[[Request, str], str],
     public_generated_url: Callable[[Request, str], str],
-    resolve_video_options: Callable[[dict], tuple[bool, str]],
+    resolve_video_options: Callable[[dict], tuple[bool, str, str]],
     load_input_images: Callable[[Any], list[tuple[bytes, str]]],
     prepare_video_source_image: Callable[[bytes, str, str], tuple[bytes, str]],
     video_ext_from_meta: Callable[[dict], str],
     extract_prompt_from_messages: Callable[[Any], str],
     sse_chat_stream: Callable[[dict], Any],
+    on_generated_file_written: Callable[[Path, int, int], None],
     quota_error_cls,
     auth_error_cls,
     upstream_temp_error_cls,
@@ -130,7 +131,14 @@ def build_generation_router(
 
                 job_id = uuid.uuid4().hex
                 out_path = generated_dir / f"{job_id}.png"
+                old_size = 0
+                try:
+                    if out_path.exists():
+                        old_size = int(out_path.stat().st_size)
+                except Exception:
+                    old_size = 0
                 out_path.write_bytes(image_bytes)
+                on_generated_file_written(out_path, old_size, len(image_bytes))
                 image_url = public_image_url(request, job_id)
                 set_request_preview(request, image_url, kind="image")
                 return {
@@ -261,7 +269,14 @@ def build_generation_router(
                         ),
                     )
                     out_path = generated_dir / f"{job_id}.png"
+                    old_size = 0
+                    try:
+                        if out_path.exists():
+                            old_size = int(out_path.stat().st_size)
+                    except Exception:
+                        old_size = 0
                     out_path.write_bytes(image_bytes)
+                    on_generated_file_written(out_path, old_size, len(image_bytes))
                     progress = float(meta.get("progress") or 100.0)
                     image_url = public_image_url(request, job_id)
                     store.update(
@@ -333,12 +348,13 @@ def build_generation_router(
         if (
             model_id.startswith("firefly-sora2")
             or model_id.startswith("firefly-veo31-fast")
+            or model_id.startswith("firefly-veo31-")
         ) and model_id not in video_model_catalog:
             return JSONResponse(
                 status_code=400,
                 content={
                     "error": {
-                        "message": "Invalid video model. Use /v1/models to get supported firefly-sora2-* or firefly-veo31-fast-* models",
+                        "message": "Invalid video model. Use /v1/models to get supported firefly-sora2-*, firefly-veo31-* or firefly-veo31-fast-* models",
                         "type": "invalid_request_error",
                     }
                 },
@@ -357,8 +373,22 @@ def build_generation_router(
         video_engine = str(video_conf.get("engine") or "sora2") if video_conf else ""
         generate_audio = True
         negative_prompt = ""
+        video_reference_mode = (
+            str(video_conf.get("reference_mode") or "frame") if video_conf else "frame"
+        )
         if is_video_model:
-            generate_audio, negative_prompt = resolve_video_options(data)
+            resolved_video_options = resolve_video_options(data)
+            if (
+                isinstance(resolved_video_options, tuple)
+                and len(resolved_video_options) == 3
+            ):
+                generate_audio, negative_prompt, requested_reference_mode = (
+                    resolved_video_options
+                )
+                if "reference_mode" not in (video_conf or {}):
+                    video_reference_mode = requested_reference_mode
+            else:
+                generate_audio, negative_prompt = resolved_video_options
         else:
             ratio, output_resolution, resolved_model_id = resolve_ratio_and_resolution(
                 data, model_id or None
@@ -379,7 +409,20 @@ def build_generation_router(
                 response_label = "generated image"
 
                 if is_video_model:
-                    max_video_inputs = 2 if video_engine == "veo31-fast" else 1
+                    if (
+                        video_engine == "veo31-standard"
+                        and video_reference_mode == "image"
+                    ):
+                        max_video_inputs = 3
+                        if ratio != "16:9" or duration != 8:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="veo31 image reference mode requires 16:9 and 8s",
+                            )
+                    else:
+                        max_video_inputs = (
+                            2 if video_engine in {"veo31-fast", "veo31-standard"} else 1
+                        )
                     if len(input_images) > max_video_inputs:
                         raise HTTPException(
                             status_code=400,
@@ -415,13 +458,21 @@ def build_generation_router(
                         timeout=max(int(client.generate_timeout), 600),
                         negative_prompt=negative_prompt,
                         generate_audio=generate_audio,
+                        reference_mode=video_reference_mode,
                         progress_cb=_video_progress_cb,
                     )
                     job_id = uuid.uuid4().hex
                     video_ext = video_ext_from_meta(video_meta)
                     filename = f"{job_id}.{video_ext}"
                     out_path = generated_dir / filename
+                    old_size = 0
+                    try:
+                        if out_path.exists():
+                            old_size = int(out_path.stat().st_size)
+                    except Exception:
+                        old_size = 0
                     out_path.write_bytes(video_bytes)
+                    on_generated_file_written(out_path, old_size, len(video_bytes))
                     image_url = public_generated_url(request, filename)
                     set_request_preview(request, image_url, kind="video")
                     response_label = "generated video"
@@ -461,7 +512,14 @@ def build_generation_router(
                     )
                     job_id = uuid.uuid4().hex
                     out_path = generated_dir / f"{job_id}.png"
+                    old_size = 0
+                    try:
+                        if out_path.exists():
+                            old_size = int(out_path.stat().st_size)
+                    except Exception:
+                        old_size = 0
                     out_path.write_bytes(image_bytes)
+                    on_generated_file_written(out_path, old_size, len(image_bytes))
                     image_url = public_image_url(request, job_id)
                     set_request_preview(request, image_url, kind="image")
 

@@ -75,6 +75,9 @@ Current supported model families are:
 - `firefly-nano-banana2-*` (image, maps to upstream `nano-banana-3`)
 - `firefly-nano-banana-pro-*` (image)
 - `firefly-sora2-*` (video)
+- `firefly-sora2-pro-*` (video)
+- `firefly-veo31-*` (video)
+- `firefly-veo31-ref-*` (video, reference-image mode)
 - `firefly-veo31-fast-*` (video)
 
 Nano Banana image models (`nano-banana-2`):
@@ -112,6 +115,39 @@ Sora2 video models:
 - Examples:
   - `firefly-sora2-4s-16x9`
   - `firefly-sora2-8s-9x16`
+
+Sora2 Pro video models:
+
+- Pattern: `firefly-sora2-pro-{duration}-{ratio}`
+- Duration: `4s` / `8s` / `12s`
+- Ratio: `9x16` / `16x9`
+- Examples:
+  - `firefly-sora2-pro-4s-16x9`
+  - `firefly-sora2-pro-8s-9x16`
+
+Veo31 video models:
+
+- Pattern: `firefly-veo31-{duration}-{ratio}-{resolution}`
+- Duration: `4s` / `6s` / `8s`
+- Ratio: `16x9` / `9x16`
+- Resolution: `1080p` / `720p`
+- Supports up to 2 reference images:
+  - 1 image: first-frame reference
+  - 2 images: first-frame + last-frame reference
+- Audio defaults to enabled
+- Examples:
+  - `firefly-veo31-4s-16x9-1080p`
+  - `firefly-veo31-6s-9x16-720p`
+
+Veo31 Ref video models (reference-image mode):
+
+- Pattern: `firefly-veo31-ref-8s-16x9-{resolution}`
+- Resolution: `1080p` / `720p`
+- Always uses reference image mode (not first/last frame mode)
+- Supports up to 3 reference images (mapped to upstream `referenceBlobs[].usage="asset"`)
+- Examples:
+  - `firefly-veo31-ref-8s-16x9-1080p`
+  - `firefly-veo31-ref-8s-16x9-720p`
 
 Veo31 Fast video models:
 
@@ -177,6 +213,14 @@ curl -X POST "http://127.0.0.1:6001/v1/chat/completions" \
     "messages": [{"role":"user","content":"a drone shot over snowy forest"}]
   }'
 ```
+
+Veo31 single-image semantics:
+
+- `firefly-veo31-*` / `firefly-veo31-fast-*`: frame mode
+  - 1 image => first frame
+  - 2 images => first frame + last frame
+- `firefly-veo31-ref-*`: reference-image mode
+  - 1~3 images => reference images
 
 Image-to-video:
 
@@ -267,6 +311,14 @@ Batch import notes:
 - Token pool: `config/tokens.json`
 - Service config: `config/config.json`
 - Refresh profile (local private): `config/refresh_profile.json`
+
+Generated media retention policy:
+
+- Files under `data/generated/` are preserved and served via `/generated/*`
+- Auto-prune is enabled by size threshold (oldest files first)
+  - `generated_max_size_mb` (default `1024`)
+  - `generated_prune_size_mb` (default `200`)
+- When total generated file size exceeds `generated_max_size_mb`, service deletes old files until at least `generated_prune_size_mb` is reclaimed and total size falls back under threshold
 
 ## 7) Security notes
 

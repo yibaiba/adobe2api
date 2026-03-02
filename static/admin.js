@@ -647,6 +647,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const confRetryOnErrorTypes = document.getElementById("confRetryOnErrorTypes");
   const confTokenRotationStrategy = document.getElementById("confTokenRotationStrategy");
   const confRefreshIntervalHours = document.getElementById("confRefreshIntervalHours");
+  const confGeneratedMaxSizeMb = document.getElementById("confGeneratedMaxSizeMb");
+  const confGeneratedPruneSizeMb = document.getElementById("confGeneratedPruneSizeMb");
+  const generatedUsageInfo = document.getElementById("generatedUsageInfo");
   const saveConfigBtn = document.getElementById("saveConfigBtn");
   const configMsg = document.getElementById("configMsg");
   const refreshBundleInput = document.getElementById("refreshBundleInput");
@@ -734,6 +737,13 @@ document.addEventListener("DOMContentLoaded", async () => {
           : "timeout,connection,proxy";
         confTokenRotationStrategy.value = String(data.token_rotation_strategy || "round_robin");
         confRefreshIntervalHours.value = Number(data.refresh_interval_hours || 15);
+        confGeneratedMaxSizeMb.value = Number(data.generated_max_size_mb || 1024);
+        confGeneratedPruneSizeMb.value = Number(data.generated_prune_size_mb || 200);
+        if (generatedUsageInfo) {
+          const usageMb = Number(data.generated_usage_mb || 0);
+          const fileCount = Number(data.generated_file_count || 0);
+          generatedUsageInfo.textContent = `当前占用：${Number.isFinite(usageMb) ? usageMb : 0} MB（${Number.isFinite(fileCount) ? fileCount : 0} 个文件）`;
+        }
       }
     } catch (err) {
       console.error("加载配置失败", err);
@@ -769,6 +779,8 @@ document.addEventListener("DOMContentLoaded", async () => {
           .filter(Boolean),
         token_rotation_strategy: String(confTokenRotationStrategy.value || "round_robin").trim() || "round_robin",
         refresh_interval_hours: Number(confRefreshIntervalHours.value || 15),
+        generated_max_size_mb: Math.max(100, Math.min(102400, Number(confGeneratedMaxSizeMb.value || 1024))),
+        generated_prune_size_mb: Math.max(10, Math.min(10240, Number(confGeneratedPruneSizeMb.value || 200))),
       };
 
       if (!payload.admin_username) {
@@ -780,6 +792,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       if (!Number.isInteger(payload.refresh_interval_hours) || payload.refresh_interval_hours < 1 || payload.refresh_interval_hours > 24) {
         throw new Error("自动刷新间隔必须是 1-24 的整数小时");
+      }
+      if (!Number.isInteger(payload.generated_max_size_mb) || payload.generated_max_size_mb < 100 || payload.generated_max_size_mb > 102400) {
+        throw new Error("生成文件空间上限必须是 100-102400 的整数 MB");
+      }
+      if (!Number.isInteger(payload.generated_prune_size_mb) || payload.generated_prune_size_mb < 10 || payload.generated_prune_size_mb > 10240) {
+        throw new Error("触发后清理量必须是 10-10240 的整数 MB");
+      }
+      if (payload.generated_prune_size_mb >= payload.generated_max_size_mb) {
+        throw new Error("触发后清理量必须小于生成文件空间上限");
       }
       if (!Number.isInteger(payload.retry_max_attempts) || payload.retry_max_attempts < 1 || payload.retry_max_attempts > 10) {
         throw new Error("最大尝试次数必须是 1-10 的整数");
@@ -798,6 +819,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
       if (res.ok) {
         showMsg(configMsg, "配置已保存", false);
+        await loadConfig();
       } else {
         showMsg(configMsg, "保存失败，请检查服务状态", true);
       }

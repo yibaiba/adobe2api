@@ -146,6 +146,16 @@ h2 {
   gap: 6px;
 }
 
+.config-inline-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.config-inline-row .inline-item {
+  min-width: 0;
+}
+
 .form-group label {
   font-size: 13px;
   font-weight: 600;
@@ -766,6 +776,10 @@ td input[type="checkbox"] {
 
 @media (max-width: 560px) {
   .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .config-inline-row {
     grid-template-columns: 1fr;
   }
 

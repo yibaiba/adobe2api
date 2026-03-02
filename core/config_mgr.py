@@ -30,6 +30,8 @@ class ConfigManager:
             "retry_on_status_codes": [429, 451, 500, 502, 503, 504],
             "retry_on_error_types": ["timeout", "connection", "proxy"],
             "token_rotation_strategy": "round_robin",
+            "generated_max_size_mb": 1024,
+            "generated_prune_size_mb": 200,
         }
         self.load()
 

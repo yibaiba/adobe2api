@@ -172,6 +172,19 @@
             <p class="help">范围 1-24 小时。后台将严格按该间隔刷新。</p>
           </div>
 
+          <div class="config-inline-row">
+            <div class="form-group inline-item">
+              <label for="confGeneratedMaxSizeMb">生成文件空间上限 (MB)</label>
+              <input type="number" id="confGeneratedMaxSizeMb" class="input-text" min="100" max="102400" step="1" placeholder="默认 1024" />
+            </div>
+            <div class="form-group inline-item">
+              <label for="confGeneratedPruneSizeMb">触发后清理量 (MB)</label>
+              <input type="number" id="confGeneratedPruneSizeMb" class="input-text" min="10" max="10240" step="1" placeholder="默认 200" />
+            </div>
+          </div>
+          <p id="generatedUsageInfo" class="help">当前占用：- MB（- 个文件）</p>
+          <p class="help">超过上限后按最旧文件优先清理；最新生成文件会被保护，不会被立即删掉。</p>
+
           <div class="actions" style="margin-top: 24px;">
             <button id="saveConfigBtn">保存配置</button>
             <span id="configMsg" class="msg"></span>

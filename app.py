@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+import threading
 import base64
 import binascii
 import io
@@ -51,6 +52,13 @@ STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 GENERATED_DIR = DATA_DIR / "generated"
 GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+
+_GENERATED_RECONCILE_INTERVAL_SEC = 300
+_generated_storage_lock = threading.Lock()
+_generated_prune_lock = threading.Lock()
+_generated_usage_bytes = 0
+_generated_file_count = 0
+_generated_last_reconcile_ts = 0.0
 
 
 # 极简配置启动
@@ -413,12 +421,25 @@ async def request_logger(request: Request, call_next):
     return response
 
 
-def _resolve_video_options(data: dict) -> tuple[bool, str]:
+def _resolve_video_options(data: dict) -> tuple[bool, str, str]:
     generate_audio = bool(data.get("generate_audio", data.get("generateAudio", True)))
     negative_prompt = str(
         data.get("negative_prompt") or data.get("negativePrompt") or ""
     ).strip()
-    return generate_audio, negative_prompt
+    reference_mode = (
+        str(
+            data.get("video_reference_mode")
+            or data.get("videoReferenceMode")
+            or data.get("reference_mode")
+            or data.get("referenceMode")
+            or "frame"
+        )
+        .strip()
+        .lower()
+    )
+    if reference_mode not in {"frame", "image"}:
+        reference_mode = "frame"
+    return generate_audio, negative_prompt, reference_mode
 
 
 def _run_with_token_retries(
@@ -791,6 +812,148 @@ def _public_generated_url(request: Request, filename: str) -> str:
     return f"{str(request.base_url).rstrip('/')}{path}"
 
 
+def _scan_generated_dir() -> tuple[list[tuple[Path, int, float]], int, int]:
+    files: list[tuple[Path, int, float]] = []
+    total_bytes = 0
+    file_count = 0
+    for item in GENERATED_DIR.iterdir():
+        if not item.is_file():
+            continue
+        try:
+            st = item.stat()
+            size = int(st.st_size)
+            mtime = float(st.st_mtime)
+        except Exception:
+            continue
+        files.append((item, size, mtime))
+        total_bytes += size
+        file_count += 1
+    return files, total_bytes, file_count
+
+
+def _reconcile_generated_storage(force: bool = False) -> None:
+    global _generated_usage_bytes, _generated_file_count, _generated_last_reconcile_ts
+    now = time.time()
+    with _generated_storage_lock:
+        if (
+            not force
+            and _generated_last_reconcile_ts > 0
+            and (now - _generated_last_reconcile_ts) < _GENERATED_RECONCILE_INTERVAL_SEC
+        ):
+            return
+    try:
+        _files, total_bytes, file_count = _scan_generated_dir()
+    except Exception:
+        return
+    with _generated_storage_lock:
+        _generated_usage_bytes = max(0, int(total_bytes))
+        _generated_file_count = max(0, int(file_count))
+        _generated_last_reconcile_ts = now
+
+
+def _on_generated_file_written(file_path: Path, old_size: int, new_size: int) -> None:
+    global _generated_usage_bytes, _generated_file_count
+    safe_old_size = max(0, int(old_size or 0))
+    safe_new_size = max(0, int(new_size or 0))
+
+    with _generated_storage_lock:
+        delta = safe_new_size - safe_old_size
+        _generated_usage_bytes = max(0, int(_generated_usage_bytes + delta))
+        if safe_old_size == 0 and safe_new_size > 0:
+            _generated_file_count += 1
+
+    _prune_generated_files_if_needed()
+
+
+def _prune_generated_files_if_needed() -> None:
+    global _generated_usage_bytes, _generated_file_count, _generated_last_reconcile_ts
+
+    def _conf_int(key: str, default: int) -> int:
+        raw = config_manager.get(key, default)
+        if isinstance(raw, bool):
+            return default
+        if isinstance(raw, (int, float, str)):
+            try:
+                return int(raw)
+            except Exception:
+                return default
+        return default
+
+    max_size_mb = _conf_int("generated_max_size_mb", 1024)
+    prune_size_mb = _conf_int("generated_prune_size_mb", 200)
+
+    if max_size_mb <= 0:
+        return
+    if prune_size_mb <= 0:
+        prune_size_mb = 200
+
+    max_bytes = max_size_mb * 1024 * 1024
+    prune_bytes = prune_size_mb * 1024 * 1024
+
+    _reconcile_generated_storage(force=False)
+    with _generated_storage_lock:
+        cached_usage = int(_generated_usage_bytes)
+    if cached_usage <= max_bytes:
+        return
+
+    if not _generated_prune_lock.acquire(blocking=False):
+        return
+
+    try:
+        files, total_bytes, file_count = _scan_generated_dir()
+        if total_bytes <= max_bytes or not files:
+            with _generated_storage_lock:
+                _generated_usage_bytes = int(total_bytes)
+                _generated_file_count = int(file_count)
+                _generated_last_reconcile_ts = time.time()
+            return
+
+        newest_file_path = max(files, key=lambda row: row[2])[0]
+        files.sort(key=lambda row: row[2])
+        removed_bytes = 0
+        current_bytes = total_bytes
+        current_count = file_count
+
+        for path, size, _mtime in files:
+            if current_bytes <= max_bytes and removed_bytes >= prune_bytes:
+                break
+            if path == newest_file_path:
+                continue
+            try:
+                path.unlink(missing_ok=True)
+                current_bytes -= size
+                current_count -= 1
+                removed_bytes += size
+            except Exception:
+                continue
+
+        with _generated_storage_lock:
+            _generated_usage_bytes = max(0, int(current_bytes))
+            _generated_file_count = max(0, int(current_count))
+            _generated_last_reconcile_ts = time.time()
+
+        logger.info(
+            "pruned generated files: before=%s after=%s removed=%s",
+            total_bytes,
+            max(current_bytes, 0),
+            removed_bytes,
+        )
+    finally:
+        _generated_prune_lock.release()
+
+
+def _get_generated_storage_stats() -> dict[str, int | float]:
+    _reconcile_generated_storage(force=False)
+    with _generated_storage_lock:
+        total_bytes = int(_generated_usage_bytes)
+        file_count = int(_generated_file_count)
+    return {
+        "generated_usage_bytes": total_bytes,
+        "generated_usage_mb": round(total_bytes / (1024 * 1024), 2),
+        "generated_file_count": file_count,
+    }
+
+
 def _video_ext_from_meta(meta: dict) -> str:
     content_type = str(meta.get("contentType") or "").lower()
     if "webm" in content_type:
@@ -840,6 +1003,9 @@ def _sse_chat_stream(payload: dict):
     yield "data: [DONE]\n\n"
 
 
+_reconcile_generated_storage(force=True)
+
+
 app.include_router(
     build_admin_router(
         static_dir=STATIC_DIR,
@@ -851,6 +1017,7 @@ app.include_router(
         require_admin_auth=_require_admin_auth,
         is_admin_authenticated=_is_admin_authenticated,
         apply_client_config=_apply_client_config,
+        get_generated_storage_stats=_get_generated_storage_stats,
     )
 )
 
@@ -877,6 +1044,7 @@ app.include_router(
         video_ext_from_meta=_video_ext_from_meta,
         extract_prompt_from_messages=_extract_prompt_from_messages,
         sse_chat_stream=_sse_chat_stream,
+        on_generated_file_written=_on_generated_file_written,
         quota_error_cls=QuotaExhaustedError,
         auth_error_cls=AuthError,
         upstream_temp_error_cls=UpstreamTemporaryError,

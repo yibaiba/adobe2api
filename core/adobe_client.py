@@ -603,6 +603,7 @@ class AdobeClient:
         source_image_ids: Optional[list[str]] = None,
         negative_prompt: str = "",
         generate_audio: bool = True,
+        reference_mode: str = "frame",
     ) -> dict:
         seed_val = int(time.time()) % 999999
         engine = str(video_conf.get("engine") or "sora2")
@@ -610,12 +611,15 @@ class AdobeClient:
             video_conf.get("upstream_model") or "openai:firefly:colligo:sora2"
         )
         resolution = str(video_conf.get("resolution") or "720p")
-        if engine == "veo31-fast":
+        if engine in {"veo31-fast", "veo31-standard"}:
+            model_version = (
+                "3.1-fast-generate" if engine == "veo31-fast" else "3.1-generate"
+            )
             payload = {
                 "n": 1,
                 "seeds": [seed_val],
                 "modelId": "veo",
-                "modelVersion": "3.1-fast-generate",
+                "modelVersion": model_version,
                 "output": {"storeInputs": True},
                 "prompt": prompt,
                 "size": self._video_size(aspect_ratio, resolution),
@@ -631,14 +635,23 @@ class AdobeClient:
                 },
             }
             if source_image_ids:
-                for idx, image_id in enumerate(source_image_ids[:2], start=1):
-                    payload["referenceBlobs"].append(
-                        {
-                            "id": str(image_id),
-                            "usage": "general",
-                            "promptReference": idx,
-                        }
-                    )
+                if engine == "veo31-standard" and str(reference_mode) == "image":
+                    for image_id in source_image_ids[:3]:
+                        payload["referenceBlobs"].append(
+                            {
+                                "id": str(image_id),
+                                "usage": "asset",
+                            }
+                        )
+                else:
+                    for idx, image_id in enumerate(source_image_ids[:2], start=1):
+                        payload["referenceBlobs"].append(
+                            {
+                                "id": str(image_id),
+                                "usage": "general",
+                                "promptReference": idx,
+                            }
+                        )
             return payload
 
         payload = {
@@ -703,6 +716,7 @@ class AdobeClient:
         timeout: int = 600,
         negative_prompt: str = "",
         generate_audio: bool = True,
+        reference_mode: str = "frame",
         progress_cb: Optional[Callable[[dict], None]] = None,
     ) -> tuple[bytes, dict]:
         payload = self._build_video_payload(
@@ -713,6 +727,7 @@ class AdobeClient:
             source_image_ids=source_image_ids,
             negative_prompt=negative_prompt,
             generate_audio=generate_audio,
+            reference_mode=reference_mode,
         )
         submit_resp = self._post_json(
             self.video_submit_url, headers=self._submit_headers(token), payload=payload

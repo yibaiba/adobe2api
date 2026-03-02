@@ -86,6 +86,41 @@ VIDEO_MODEL_CATALOG: dict[str, dict] = {
     },
 }
 
+for dur in (4, 8, 12):
+    for ratio in ("9:16", "16:9"):
+        model_id = f"firefly-sora2-pro-{dur}s-{RATIO_SUFFIX_MAP[ratio]}"
+        VIDEO_MODEL_CATALOG[model_id] = {
+            "duration": dur,
+            "aspect_ratio": ratio,
+            "upstream_model": "openai:firefly:colligo:sora2-pro",
+            "description": f"Firefly Sora2 Pro video model ({dur}s {ratio})",
+        }
+
+for dur in (4, 6, 8):
+    for ratio in ("16:9", "9:16"):
+        for res in ("1080p", "720p"):
+            model_id = f"firefly-veo31-{dur}s-{RATIO_SUFFIX_MAP[ratio]}-{res}"
+            VIDEO_MODEL_CATALOG[model_id] = {
+                "engine": "veo31-standard",
+                "upstream_model": "google:firefly:colligo:veo31",
+                "duration": dur,
+                "aspect_ratio": ratio,
+                "resolution": res,
+                "description": f"Firefly Veo31 video model ({dur}s {ratio} {res})",
+            }
+
+for res in ("1080p", "720p"):
+    model_id = f"firefly-veo31-ref-8s-16x9-{res}"
+    VIDEO_MODEL_CATALOG[model_id] = {
+        "engine": "veo31-standard",
+        "upstream_model": "google:firefly:colligo:veo31",
+        "duration": 8,
+        "aspect_ratio": "16:9",
+        "resolution": res,
+        "reference_mode": "image",
+        "description": f"Firefly Veo31 Ref video model (8s 16:9 {res})",
+    }
+
 for dur in (4, 6, 8):
     for ratio in ("16:9", "9:16"):
         for res in ("1080p", "720p"):

@@ -1,7 +1,7 @@
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, List
+from typing import Any, Callable, List
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -33,6 +33,7 @@ def build_admin_router(
     require_admin_auth: Callable[[Request], None],
     is_admin_authenticated: Callable[[Request], bool],
     apply_client_config: Callable[[], None],
+    get_generated_storage_stats: Callable[[], dict[str, Any]],
 ) -> APIRouter:
     router = APIRouter()
 
@@ -328,6 +329,10 @@ def build_admin_router(
         require_admin_auth(request)
         cfg = config_manager.get_all()
         cfg.pop("admin_session_secret", None)
+        try:
+            cfg.update(get_generated_storage_stats())
+        except Exception:
+            pass
         return cfg
 
     @router.put("/api/v1/config")
@@ -453,6 +458,53 @@ def build_admin_router(
                     detail="token_rotation_strategy must be one of: round_robin, random",
                 )
             update_data["token_rotation_strategy"] = strategy
+        if "generated_max_size_mb" in incoming:
+            try:
+                generated_max_size_mb = int(incoming["generated_max_size_mb"])
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail="generated_max_size_mb must be an integer between 100 and 102400",
+                )
+            if generated_max_size_mb < 100 or generated_max_size_mb > 102400:
+                raise HTTPException(
+                    status_code=400,
+                    detail="generated_max_size_mb must be between 100 and 102400",
+                )
+            update_data["generated_max_size_mb"] = generated_max_size_mb
+        if "generated_prune_size_mb" in incoming:
+            try:
+                generated_prune_size_mb = int(incoming["generated_prune_size_mb"])
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail="generated_prune_size_mb must be an integer between 10 and 10240",
+                )
+            if generated_prune_size_mb < 10 or generated_prune_size_mb > 10240:
+                raise HTTPException(
+                    status_code=400,
+                    detail="generated_prune_size_mb must be between 10 and 10240",
+                )
+            update_data["generated_prune_size_mb"] = generated_prune_size_mb
+        effective_max = int(
+            update_data.get(
+                "generated_max_size_mb",
+                config_manager.get("generated_max_size_mb", 1024),
+            )
+            or 1024
+        )
+        effective_prune = int(
+            update_data.get(
+                "generated_prune_size_mb",
+                config_manager.get("generated_prune_size_mb", 200),
+            )
+            or 200
+        )
+        if effective_prune >= effective_max:
+            raise HTTPException(
+                status_code=400,
+                detail="generated_prune_size_mb must be smaller than generated_max_size_mb",
+            )
         config_manager.update_all(update_data)
         apply_client_config()
         return config_manager.get_all()
