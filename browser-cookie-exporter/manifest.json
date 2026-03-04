@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Adobe Cookie Exporter",
+  "description": "Export Adobe/Firefly cookies in adobe_register-compatible JSON format.",
+  "version": "1.0.0",
+  "permissions": [
+    "cookies",
+    "downloads",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.adobe.com/*"
+  ],
+  "action": {
+    "default_title": "Adobe Cookie Exporter",
+    "default_popup": "popup.html"
+  }
+}

@@ -312,3 +312,19 @@ Generated media retention policy:
 - Cookie data contains high-sensitivity session data.
 - Do not commit/share cookie export files.
 - Rotate Adobe session if sensitive data was exposed.
+
+## 8) Browser Cookie Export Extension
+
+- A Chrome/Edge extension is included at `browser-cookie-exporter/`.
+- It exports minimal `cookie_*.json` files (only the `cookie` field).
+- See details in `browser-cookie-exporter/README.md`.
+
+Extension usage:
+
+1. Open the extensions page: `chrome://extensions` (or `edge://extensions`)
+2. Enable Developer mode
+3. Click Load unpacked and select `browser-cookie-exporter/`
+4. Log in to Adobe/Firefly in your browser
+5. Click the extension icon and choose export scope
+6. Click `Export Minimal JSON`
+7. Use the exported JSON with the `adobe2api` cookie import API

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Adobe Cookie Exporter</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>Adobe Cookie 导出</h1>
+
+      <label class="field">
+        <span>导出范围</span>
+        <select id="scopeSelect">
+          <option value="adobe">Adobe 全域（推荐）</option>
+          <option value="current">当前站点</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button id="exportJsonBtn" type="button">导出最简 JSON</button>
+      </div>
+
+      <section class="result">
+        <p id="statusText" class="status">等待导出…</p>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

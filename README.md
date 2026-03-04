@@ -312,3 +312,19 @@ curl -X POST "http://127.0.0.1:6001/v1/images/generations" \
 - Cookie 数据包含高敏感会话信息。
 - 不要提交或分享 Cookie 导出文件。
 - 如果敏感信息泄露，请及时轮换 Adobe 会话。
+
+## 8）浏览器 Cookie 导出插件
+
+- 已提供 Chrome/Edge 插件：`browser-cookie-exporter/`
+- 可导出最简 `cookie_*.json`（仅包含 `cookie` 字段）
+- 详细说明见：`browser-cookie-exporter/README.md`
+
+插件使用步骤：
+
+1. 打开扩展管理页：`chrome://extensions`（或 `edge://extensions`）
+2. 开启「开发者模式」
+3. 点击「加载已解压的扩展程序」，选择目录 `browser-cookie-exporter/`
+4. 在浏览器中登录 Adobe/Firefly
+5. 点击插件图标，选择导出范围
+6. 点击「导出最简 JSON」
+7. 将导出的 JSON 用于 `adobe2api` 的 Cookie 导入接口
